@@ -453,7 +453,11 @@ r.post("/ai", (_req, res) => {
 
 app.use("/api/dashboard", r);
 
-app.listen(PORT, () => {
-	console.log(`✓ Dashboard → http://localhost:${PORT}`);
-	console.log(`  Token: set DASHBOARD_TOKEN in .env`);
-});
+// Local dev: start server. On Vercel the default export is used instead.
+if (process.env.VERCEL !== "1") {
+	app.listen(PORT, () => {
+		console.log(`✓ Dashboard → http://localhost:${PORT}`);
+	});
+}
+
+export default app;
