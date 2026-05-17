@@ -37,14 +37,14 @@ function pricingDs(): string {
 	return id;
 }
 
-// For querying — uses data source ID (ntn datasources resolve <db-id>)
+// For querying only — data source ID from `ntn datasources resolve <db-id>`
 function callbacksDs(): string {
 	const id = process.env.CALLBACKS_DATA_SOURCE_ID;
 	if (!id) throw new Error("CALLBACKS_DATA_SOURCE_ID env var is not set");
 	return id;
 }
 
-// For creating pages — uses the database ID from the Notion URL
+// For pages.create — must use the Notion database ID (from URL), NOT data_source_id
 function callbacksDbId(): string {
 	const id = process.env.CALLBACKS_DATABASE_ID;
 	if (!id) throw new Error("CALLBACKS_DATABASE_ID env var is not set");
