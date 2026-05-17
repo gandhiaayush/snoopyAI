@@ -37,11 +37,17 @@ function pricingDs(): string {
 	return id;
 }
 
-// CALLBACKS_DATA_SOURCE_ID: used for both querying and creating pages (per Notion API docs)
-// Get it by running: ntn datasources resolve <callbacks-database-id>
+// For querying — uses data source ID (ntn datasources resolve <db-id>)
 function callbacksDs(): string {
 	const id = process.env.CALLBACKS_DATA_SOURCE_ID;
 	if (!id) throw new Error("CALLBACKS_DATA_SOURCE_ID env var is not set");
+	return id;
+}
+
+// For creating pages — uses the database ID from the Notion URL
+function callbacksDbId(): string {
+	const id = process.env.CALLBACKS_DATABASE_ID;
+	if (!id) throw new Error("CALLBACKS_DATABASE_ID env var is not set");
 	return id;
 }
 
@@ -391,7 +397,7 @@ worker.tool("requestCallback", {
 	execute: async ({ customerName, phone, orderId, reason }, { notion }) => {
 		const today = new Date().toISOString().split("T")[0];
 		await notion.pages.create({
-			parent: { data_source_id: callbacksDs() } as any,
+			parent: { database_id: callbacksDbId() },
 			properties: {
 				CUSTOMER_NAME: {
 					title: [{ type: "text", text: { content: customerName } }],
