@@ -243,7 +243,7 @@ r.post("/callbacks/:id/call", async (req, res) => {
 	}
 	try {
 		const params = new URLSearchParams({
-			outbound: "true",
+			outbound: "true", callType: "callback",
 			customerName, orderId, reason: reason || "",
 			garmentType: garmentType || "", trackerStage: trackerStage || "",
 			price: String(price ?? ""), paymentMethod: paymentMethod || "",
@@ -364,7 +364,7 @@ r.post("/orders/:id/call", async (req, res) => {
 	if (!phone) { res.status(400).json({ error: "phone required" }); return; }
 	try {
 		const params = new URLSearchParams({
-			outbound: "true",
+			outbound: "true", callType: "order",
 			customerName, orderId,
 			garmentType: garmentType || "", trackerStage: trackerStage || "",
 			price: String(price ?? ""), paymentMethod: paymentMethod || "",

@@ -433,7 +433,7 @@ worker.tool("triggerCallbackCall", {
 	execute: async ({ callbackId, phone, customerName, orderId, reason }, { notion }) => {
 		const { accountSid, authToken, fromNumber, webhookBase } = twilioEnv();
 		const base = webhookBase.replace(/\/$/, "");
-		const callUrl = `${base}/voice?outbound=true&customerName=${encodeURIComponent(customerName)}&orderId=${encodeURIComponent(orderId)}&reason=${encodeURIComponent(reason)}`;
+		const callUrl = `${base}/voice?${new URLSearchParams({ outbound: "true", callType: "callback", customerName, orderId, reason }).toString()}`;
 
 		const credentials = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
 		const res = await fetch(
@@ -573,7 +573,7 @@ worker.tool("triggerPickupCall", {
 
 		const credentials = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
 		const base = webhookBase.replace(/\/$/, "");
-		const callUrl = `${base}/voice?outbound=true&customerName=${encodeURIComponent(customerName)}&orderId=${encodeURIComponent(orderId)}`;
+		const callUrl = `${base}/voice?${new URLSearchParams({ outbound: "true", callType: "pickup", customerName, orderId, reason: "Your order is ready for pickup" }).toString()}`;
 
 		const res = await fetch(
 			`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json`,
@@ -637,12 +637,35 @@ worker.sync("callbackPoller", {
 				continue;
 			}
 
+			// Look up the order for full context
+			let orderCtx: Record<string, string> = {};
+			try {
+				const orderRes = await notion.dataSources.query({
+					data_source_id: ordersDs(),
+					filter: { property: "ORDER_ID", rich_text: { equals: orderId } },
+					page_size: 1,
+				});
+				if (orderRes.results.length > 0) {
+					const op = (orderRes.results[0] as any).properties;
+					orderCtx = {
+						garmentType:   getText(op["GARMENT_TYPE"]),
+						trackerStage:  getText(op["TRACKER_STAGE"]),
+						price:         String(op["ORDER_PRICE"]?.number ?? ""),
+						paymentMethod: getText(op["PAYMENT_METHOD"]),
+						orderType:     getText(op["ORDER_TYPE"]),
+						notes:         getText(op["NOTES"]).slice(0, 400),
+					};
+				}
+			} catch (_) { /* non-fatal */ }
+
 			let result = "Called";
 			try {
 				const callParams = new URLSearchParams({
-						outbound: "true", customerName, orderId, reason: reason || "",
-					});
-					const callUrl = `${base}/voice?${callParams.toString()}`;
+					outbound: "true", callType: "callback",
+					customerName, orderId, reason: reason || "",
+					...orderCtx,
+				});
+				const callUrl = `${base}/voice?${callParams.toString()}`;
 				const creds = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
 				const r = await fetch(
 					`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json`,
@@ -711,6 +734,19 @@ worker.sync("pickupPoller", {
 		const base = webhookBase.replace(/\/$/, "");
 		const changes: any[] = [];
 
+		// Pre-fetch all active callbacks so we can skip orders that have one pending
+		const activeCbRes = await notion.dataSources.query({
+			data_source_id: callbacksDs(),
+			filter: { or: [
+				{ property: "STATUS", rich_text: { equals: "Pending" } },
+				{ property: "STATUS", rich_text: { equals: "Approved" } },
+			] },
+			page_size: 100,
+		});
+		const activeCallbackOrderIds = new Set(
+			activeCbRes.results.map((p: any) => getText(p.properties["ORDER_ID"])).filter(Boolean)
+		);
+
 		for (const page of res.results) {
 			const p = (page as any).properties;
 			const tracker = getText(p["TRACKER_STAGE"]);
@@ -725,6 +761,10 @@ worker.sync("pickupPoller", {
 			const customerName = getText(p["CUSTOMER_NAME"]);
 			const orderId = getText(p["ORDER_ID"]);
 
+			// Skip if there's already a pending/approved callback for this order —
+			// the callbackPoller will handle the call with the correct context
+			if (activeCallbackOrderIds.has(orderId)) continue;
+
 			let result = "Called";
 			try {
 				const garmentType = getText(p["GARMENT_TYPE"]);
@@ -733,7 +773,7 @@ worker.sync("pickupPoller", {
 				const price       = p["ORDER_PRICE"]?.number ?? "";
 				const expectedDate = p["EXPECTED_DATE"]?.date?.start ?? "";
 				const pickupParams = new URLSearchParams({
-					outbound: "true", customerName, orderId,
+					outbound: "true", callType: "pickup", customerName, orderId,
 					reason: "Your order is ready for pickup",
 					garmentType, orderType, trackerStage: "Ready for Pickup",
 					price: String(price), paymentMethod, expectedDate,
