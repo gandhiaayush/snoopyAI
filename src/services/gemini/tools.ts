@@ -281,30 +281,13 @@ export const OWNER_TOOLS: FunctionDeclaration[] = [
 
 // ─── Dispatcher — all tools route through Notion Worker ───────────────────────
 
-async function withRetry<T>(fn: () => Promise<T>, attempts = 2, timeoutMs = 8000): Promise<T> {
-  let lastErr: unknown;
-  for (let i = 0; i < attempts; i++) {
-    try {
-      return await Promise.race([
-        fn(),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("Notion timeout")), timeoutMs)
-        ),
-      ]);
-    } catch (err) {
-      lastErr = err;
-    }
-  }
-  throw lastErr;
-}
-
 export async function executeTool(
   toolName: string,
   input: Record<string, unknown>,
   _callSid: string,
   _callerPhone: string
 ): Promise<{ result: unknown; action: string }> {
-  const result = await withRetry(() => callWorkerTool(toolName, input));
+  const result = await callWorkerTool(toolName, input);
   return {
     result,
     action: `${toolName}: done`,
