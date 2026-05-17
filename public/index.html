@@ -994,6 +994,7 @@ async function loadStats(){
     document.querySelector('[data-stat="expedited"]').textContent = s.expedited;
     document.querySelector('[data-stat="unpaid"]').textContent    = s.unpaid;
     document.querySelector('[data-stat="callbacks"]').textContent = s.callbacks;
+    document.getElementById('tb-cb').textContent = s.callbacks;
   } catch(e){ console.error('loadStats:',e); }
 }
 
@@ -1237,6 +1238,7 @@ async function loadCallbacks(){
   try{
     const cbs = await (await fetch('/api/dashboard/callbacks',{headers:authH()})).json();
     const el  = document.getElementById('callbacks-container');
+    document.getElementById('tb-cb').textContent = String(cbs.length);
     if(!cbs.length){
       el.innerHTML='<div style="text-align:center;padding:40px;color:var(--muted)">No pending callbacks ✓</div>';
     } else {
