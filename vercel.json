@@ -1,10 +1,11 @@
 {
   "version": 2,
   "builds": [
+    { "src": "public/index.html", "use": "@vercel/static" },
     { "src": "src/dashboard.ts", "use": "@vercel/node" }
   ],
   "routes": [
     { "src": "/api/(.*)", "dest": "src/dashboard.ts" },
-    { "src": "/(.*)", "dest": "src/dashboard.ts" }
+    { "src": "/", "dest": "/public/index.html" }
   ]
 }
