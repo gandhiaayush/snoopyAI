@@ -11,6 +11,9 @@ export interface Message {
 export interface OutboundContext {
   customerName: string;
   orderId: string;
+  callType?: string;   // "pickup" | "callback" | "order"
+  reason?: string;
+  pageId?: string;
 }
 
 export interface Session {

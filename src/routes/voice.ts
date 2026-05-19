@@ -16,8 +16,11 @@ voiceRouter.post("/", twilioValidate, async (req: Request, res: Response): Promi
   try {
     if (isOutbound) {
       const customerName = decodeURIComponent((req.query.customerName as string) ?? "");
-      const orderId = decodeURIComponent((req.query.orderId as string) ?? "");
-      await createSession(CallSid, callerPhone, "consumer", { customerName, orderId });
+      const orderId      = decodeURIComponent((req.query.orderId      as string) ?? "");
+      const callType     = decodeURIComponent((req.query.callType     as string) ?? "pickup");
+      const reason       = decodeURIComponent((req.query.reason       as string) ?? "");
+      const pageId       = decodeURIComponent((req.query.pageId       as string) ?? "");
+      await createSession(CallSid, callerPhone, "consumer", { customerName, orderId, callType, reason, pageId });
     } else {
       const { role } = await getCallerRole(callerPhone);
       await createSession(CallSid, callerPhone, role);

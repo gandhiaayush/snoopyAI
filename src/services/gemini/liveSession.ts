@@ -28,7 +28,13 @@ export async function openGeminiSession(
 ): Promise<GeminiHandle> {
   const tools = callerRole === "owner" ? OWNER_TOOLS : CONSUMER_TOOLS;
   const systemPrompt = outboundContext
-    ? buildOutboundSystem(outboundContext.customerName, outboundContext.orderId)
+    ? buildOutboundSystem(
+        outboundContext.customerName,
+        outboundContext.orderId,
+        outboundContext.callType,
+        outboundContext.reason,
+        outboundContext.pageId
+      )
     : callerRole === "owner" ? OWNER_SYSTEM : CONSUMER_SYSTEM;
   const actionsTaken: string[] = [];
 
@@ -94,7 +100,9 @@ export async function openGeminiSession(
 
   // Trigger opening greeting
   const openingCue = outboundContext
-    ? `[Outbound call connected. Say exactly: "Hey, this is Charlie's Cleaners — is this ${outboundContext.customerName}? Your order ${outboundContext.orderId} is ready for pickup!" Then call getOrderById with orderId="${outboundContext.orderId}" to load the order details and answer any questions.]`
+    ? outboundContext.callType === "callback"
+      ? `[Outbound callback call connected. Say exactly: "Hey, is this ${outboundContext.customerName}? This is Charlie's Cleaners — we're calling back about your order ${outboundContext.orderId}. ${outboundContext.reason || "We got your message."} Is now a good time?" Then call getOrderById with orderId="${outboundContext.orderId}" to load order details.]`
+      : `[Outbound call connected. Say exactly: "Hey, this is Charlie's Cleaners — is this ${outboundContext.customerName}? Your order ${outboundContext.orderId} is ready for pickup! Is there anything you'd like to know before you come in?" Then call getOrderById with orderId="${outboundContext.orderId}" to load the order details and answer any questions.]`
     : `[Call connected. Say exactly: "Hey, this is Charlie's Cleaners." — nothing else. Then wait for the customer to speak.]`;
   liveSession.sendRealtimeInput({ text: openingCue });
 

@@ -183,7 +183,7 @@ async function searchWorkspace({ query }: { query: string }) {
 async function listPendingCallbacks() {
   const res = await (notion as any).dataSources.query({
     data_source_id: ds("CALLBACKS_DATA_SOURCE_ID"),
-    filter: { property: "STATUS", select: { equals: "Pending" } },
+    filter: { property: "STATUS", rich_text: { equals: "Pending" } },
     page_size: 50,
   });
   const callbacks = res.results.map((page: any) => {
@@ -195,7 +195,7 @@ async function listPendingCallbacks() {
       orderId:      getText(p["ORDER_ID"]),
       reason:       getText(p["REASON"]),
       requestedAt:  (p["REQUESTED_AT"]?.date?.start ?? null) as string | null,
-      status:       (p["STATUS"]?.select?.name ?? null) as string | null,
+      status:       getText(p["STATUS"]) || null,
     };
   });
   return { count: callbacks.length, callbacks };
@@ -291,16 +291,17 @@ async function requestCallback({
   customerName, phone, orderId, reason,
 }: { pageId: string; customerName: string; phone: string; orderId: string; reason: string }) {
   const today = new Date().toISOString().split("T")[0];
+  const cbProps: Record<string, unknown> = {
+    CUSTOMER_NAME: { title: [{ type: "text", text: { content: customerName } }] },
+    ORDER_ID:      { rich_text: [{ type: "text", text: { content: orderId } }] },
+    REASON:        { rich_text: [{ type: "text", text: { content: reason } }] },
+    REQUESTED_AT:  { date: { start: today } },
+    STATUS:        { rich_text: [{ type: "text", text: { content: "Pending" } }] },
+  };
+  if (phone) cbProps["PHONE"] = { phone_number: phone };
   await notion.pages.create({
     parent: { database_id: ds("CALLBACKS_DATABASE_ID") } as any,
-    properties: {
-      CUSTOMER_NAME: { title: [{ type: "text", text: { content: customerName } }] },
-      ORDER_ID:      { rich_text: [{ type: "text", text: { content: orderId } }] },
-      PHONE:         { phone_number: phone },
-      REASON:        { rich_text: [{ type: "text", text: { content: reason } }] },
-      REQUESTED_AT:  { date: { start: today } },
-      STATUS:        { select: { name: "Pending" } },
-    } as any,
+    properties: cbProps as any,
   });
   return { success: true, callbackLogged: true, reason };
 }
@@ -308,7 +309,7 @@ async function requestCallback({
 async function resolveCallback({ callbackId, status }: { callbackId: string; status: string }) {
   await notion.pages.update({
     page_id: callbackId,
-    properties: { STATUS: { select: { name: status } } } as any,
+    properties: { STATUS: { rich_text: [{ type: "text", text: { content: status } }] } } as any,
   });
   return { success: true, status };
 }
