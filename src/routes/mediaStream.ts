@@ -58,7 +58,15 @@ export function handleMediaStream(ws: WebSocket): void {
           console.error(`[${callSid}] Gemini error:`, err.message);
           ws.close();
         },
-        session.outbound_context ?? undefined
+        session.outbound_context ?? undefined,
+        // onClose: Gemini session ended unexpectedly — close call cleanly
+        () => {
+          setTimeout(() => { if (!completed) { finalize(); ws.close(); } }, 500);
+        },
+        // onHangup: AI called hangUp tool — wait for goodbye audio to finish, then close
+        () => {
+          setTimeout(() => { if (!completed) { finalize(); ws.close(); } }, 3500);
+        }
       ).catch((err) => {
         console.error(`[${callSid}] Failed to open Gemini session:`, err);
         ws.close();

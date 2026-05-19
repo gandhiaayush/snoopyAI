@@ -246,6 +246,16 @@ const T_RESOLVE_CALLBACK: FunctionDeclaration = {
   },
 };
 
+const T_HANG_UP: FunctionDeclaration = {
+  name: "hangUp",
+  description: "End the call. Only call this AFTER you have already spoken your goodbye phrase aloud. Do not call this mid-conversation.",
+  parameters: {
+    type: Type.OBJECT,
+    properties: {},
+    required: [],
+  },
+};
+
 // ─── Tool Sets ────────────────────────────────────────────────────────────────
 
 export const CONSUMER_TOOLS: FunctionDeclaration[] = [
@@ -257,6 +267,7 @@ export const CONSUMER_TOOLS: FunctionDeclaration[] = [
   T_APPEND_NOTE,
   T_SET_ORDER_TYPE,
   T_REQUEST_CALLBACK,
+  T_HANG_UP,
 ];
 
 export const OWNER_TOOLS: FunctionDeclaration[] = [
@@ -277,6 +288,7 @@ export const OWNER_TOOLS: FunctionDeclaration[] = [
   T_LIST_PENDING_CALLBACKS,
   T_RESOLVE_CALLBACK,
   T_TRIGGER_PICKUP_CALL,
+  T_HANG_UP,
 ];
 
 // ─── Dispatcher — all tools route through Notion Worker ───────────────────────
@@ -285,8 +297,13 @@ export async function executeTool(
   toolName: string,
   input: Record<string, unknown>,
   _callSid: string,
-  _callerPhone: string
+  _callerPhone: string,
+  hangupCallback?: () => void
 ): Promise<{ result: unknown; action: string }> {
+  if (toolName === "hangUp") {
+    hangupCallback?.();
+    return { result: { success: true }, action: "hangUp: call ending" };
+  }
   const result = await callWorkerTool(toolName, input);
   return {
     result,

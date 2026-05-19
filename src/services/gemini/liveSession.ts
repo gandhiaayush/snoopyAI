@@ -24,7 +24,9 @@ export async function openGeminiSession(
   callerPhone: string,
   onAudio: (base64Mulaw: string) => void,
   onError: (err: Error) => void,
-  outboundContext?: OutboundContext | null
+  outboundContext?: OutboundContext | null,
+  onClose?: () => void,
+  onHangup?: () => void
 ): Promise<GeminiHandle> {
   const tools = callerRole === "owner" ? OWNER_TOOLS : CONSUMER_TOOLS;
   const systemPrompt = outboundContext
@@ -75,7 +77,8 @@ export async function openGeminiSession(
                   fc.name ?? "",
                   (fc.args as Record<string, unknown>) ?? {},
                   "",
-                  callerPhone
+                  callerPhone,
+                  onHangup
                 );
                 actionsTaken.push(action);
                 responses.push({ id: fc.id, name: fc.name, response: result as Record<string, unknown> });
@@ -88,14 +91,14 @@ export async function openGeminiSession(
         }
       },
       onerror: (err: unknown) => onError(err instanceof Error ? err : new Error(String(err))),
-      onclose: () => {},
+      onclose: () => { onClose?.(); },
     },
   });
 
   // Trigger opening greeting
   const openingCue = outboundContext
     ? `[Outbound call connected. Say exactly: "Hey, this is Charlie's Cleaners — is this ${outboundContext.customerName}? Your order ${outboundContext.orderId} is ready for pickup!" Then call getOrderById with orderId="${outboundContext.orderId}" to load the order details and answer any questions.]`
-    : `[Call connected. Say exactly: "Hey, this is Charlie's Cleaners." — nothing else. Then wait for the customer to speak.]`;
+    : `[Call connected. Say exactly: "Hey, this is Charlie's Cleaners — how can I help you today?" — nothing else. Then wait for the customer to speak.]`;
   liveSession.sendRealtimeInput({ text: openingCue });
 
   return {
