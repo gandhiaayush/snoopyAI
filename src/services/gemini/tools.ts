@@ -98,7 +98,7 @@ const T_SET_ORDER_TYPE: FunctionDeclaration = {
 
 const T_REQUEST_CALLBACK: FunctionDeclaration = {
   name: "requestCallback",
-  description: "Log a callback request so staff knows to follow up. Use when only staff can answer. Always call this — don't just tell the customer someone will call.",
+  description: "Log a callback so staff follows up with the customer. Use when: (1) you can't answer the question from your tools, (2) the question requires a staff decision or custom quote, (3) customer asks to speak with a human, or (4) customer is frustrated and needs a human. Always call this — never just promise someone will call without logging it.",
   parameters: {
     type: Type.OBJECT,
     properties: {
