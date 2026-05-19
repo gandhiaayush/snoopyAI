@@ -639,6 +639,8 @@ worker.sync("callbackPoller", {
 
 			// Look up the order for full context
 			let orderCtx: Record<string, string> = {};
+			let orderPageId: string | null = null;
+			let orderNotes = "";
 			try {
 				const orderRes = await notion.dataSources.query({
 					data_source_id: ordersDs(),
@@ -646,14 +648,16 @@ worker.sync("callbackPoller", {
 					page_size: 1,
 				});
 				if (orderRes.results.length > 0) {
+					orderPageId = (orderRes.results[0] as any).id as string;
 					const op = (orderRes.results[0] as any).properties;
+					orderNotes = getText(op["NOTES"]).slice(0, 400);
 					orderCtx = {
 						garmentType:   getText(op["GARMENT_TYPE"]),
 						trackerStage:  getText(op["TRACKER_STAGE"]),
 						price:         String(op["ORDER_PRICE"]?.number ?? ""),
 						paymentMethod: getText(op["PAYMENT_METHOD"]),
 						orderType:     getText(op["ORDER_TYPE"]),
-						notes:         getText(op["NOTES"]).slice(0, 400),
+						notes:         orderNotes,
 					};
 				}
 			} catch (_) { /* non-fatal */ }
@@ -663,6 +667,7 @@ worker.sync("callbackPoller", {
 				const callParams = new URLSearchParams({
 					outbound: "true", callType: "callback",
 					customerName, orderId, reason: reason || "",
+					...(orderPageId ? { pageId: orderPageId } : {}),
 					...orderCtx,
 				});
 				const callUrl = `${base}/voice?${callParams.toString()}`;
@@ -679,11 +684,20 @@ worker.sync("callbackPoller", {
 					},
 				);
 				if (!r.ok) throw new Error(await r.text());
-				// Success — mark as called
+				// Success — mark callback as Called Back
 				await notion.pages.update({
 					page_id: page.id,
 					properties: { STATUS: { rich_text: [{ type: "text", text: { content: "Called Back" } }] } },
 				});
+				// Write callback reason to ORDER notes so the order record reflects the call
+				if (orderPageId) {
+					const callNote = `📞 Callback call made ${today}: ${reason}`;
+					const updatedOrderNotes = orderNotes ? `${orderNotes}\n${callNote}` : callNote;
+					await notion.pages.update({
+						page_id: orderPageId,
+						properties: { NOTES: { rich_text: [{ type: "text", text: { content: updatedOrderNotes } }] } },
+					});
+				}
 			} catch (err) {
 				result = "Failed";
 				// Log failure in callback notes so retry count is tracked
@@ -774,6 +788,7 @@ worker.sync("pickupPoller", {
 				const expectedDate = p["EXPECTED_DATE"]?.date?.start ?? "";
 				const pickupParams = new URLSearchParams({
 					outbound: "true", callType: "pickup", customerName, orderId,
+					pageId: page.id,
 					reason: "Your order is ready for pickup",
 					garmentType, orderType, trackerStage: "Ready for Pickup",
 					price: String(price), paymentMethod, expectedDate,

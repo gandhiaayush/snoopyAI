@@ -645,7 +645,17 @@ tbody td{padding:11px 13px;font-size:.85rem;vertical-align:middle}
       <div class="dw-sec-t">Actions</div>
       <div class="form-row">
         <button class="btn btn-ghost" onclick="makeExpeditedAction()">🚀 Make Expedited</button>
-        <button class="btn btn-danger" onclick="requestCallbackAction()">📞 Log Callback</button>
+        <button class="btn btn-danger" id="cb-toggle-btn" onclick="toggleCallbackForm()">📞 Log Callback</button>
+      </div>
+      <div id="cb-form" style="display:none;margin-top:10px">
+        <div class="form-row">
+          <div class="fg">
+            <label class="fl">Callback reason</label>
+            <input class="finp" id="cb-reason-inp" type="text" placeholder="e.g. Confirm expedited capacity…" onkeydown="if(event.key==='Enter')submitCallbackForm()"/>
+          </div>
+          <button class="btn btn-primary" style="margin-top:auto" onclick="submitCallbackForm()">Log</button>
+          <button class="btn btn-ghost" style="margin-top:auto" onclick="toggleCallbackForm()">✕</button>
+        </div>
       </div>
     </div>
 
@@ -1101,6 +1111,10 @@ function renderDrawer(o){
   document.getElementById('dw-garment-sel').value    = o.garmentType??'';
   document.getElementById('dw-notes-disp').textContent = o.notes||('no notes yet');
   document.getElementById('dw-note-inp').value = '';
+  const cbForm = document.getElementById('cb-form');
+  if(cbForm){ cbForm.style.display='none'; }
+  const cbInp = document.getElementById('cb-reason-inp');
+  if(cbInp) cbInp.value = '';
 }
 
 /* ─── Phone edit ─────────────────────────────────────────────────────────────── */
@@ -1204,10 +1218,18 @@ async function saveNote(){
 }
 
 /* ─── Quick actions ──────────────────────────────────────────────────────────── */
-async function requestCallbackAction(){
+function toggleCallbackForm(){
+  const form = document.getElementById('cb-form');
+  const visible = form.style.display !== 'none';
+  form.style.display = visible ? 'none' : 'block';
+  if(!visible) setTimeout(()=>document.getElementById('cb-reason-inp').focus(),0);
+  else document.getElementById('cb-reason-inp').value = '';
+}
+async function submitCallbackForm(){
   if(!currentOrder) return;
-  const reason = prompt('Callback reason:');
-  if(!reason) return;
+  const inp = document.getElementById('cb-reason-inp');
+  const reason = inp.value.trim();
+  if(!reason){ showToast('Enter a reason','err'); return; }
   try{
     currentOrder = await (await API.callback(currentOrder.pageId,reason)).json();
     renderDrawer(currentOrder); await loadStats();
@@ -1349,6 +1371,7 @@ async function callNow(id, customerName, orderId, reason){
       method:'POST', headers:jsonH(),
       body: JSON.stringify({
         phone, customerName, orderId, reason,
+        pageId: order.pageId||'',
         garmentType: order.garmentType||'',
         trackerStage: order.tracker||'',
         price: order.price||'',

@@ -230,9 +230,9 @@ r.patch("/callbacks/:id/phone", async (req, res) => {
 
 // POST /callbacks/:id/call  — trigger Twilio call immediately (no waiting for poller)
 r.post("/callbacks/:id/call", async (req, res) => {
-	const { phone, customerName, orderId, reason, garmentType, trackerStage, price, paymentMethod, orderType, notes } = req.body as {
+	const { phone, customerName, orderId, reason, garmentType, trackerStage, price, paymentMethod, orderType, notes, pageId } = req.body as {
 		phone: string; customerName: string; orderId: string; reason: string;
-		garmentType?: string; trackerStage?: string; price?: number; paymentMethod?: string; orderType?: string; notes?: string;
+		garmentType?: string; trackerStage?: string; price?: number; paymentMethod?: string; orderType?: string; notes?: string; pageId?: string;
 	};
 	const accountSid  = process.env.TWILIO_ACCOUNT_SID;
 	const authToken   = process.env.TWILIO_AUTH_TOKEN;
@@ -242,14 +242,15 @@ r.post("/callbacks/:id/call", async (req, res) => {
 		res.status(500).json({ error: "Twilio env vars not set" }); return;
 	}
 	try {
-		const params = new URLSearchParams({
+		const callParamObj: Record<string, string> = {
 			outbound: "true", callType: "callback",
 			customerName, orderId, reason: reason || "",
 			garmentType: garmentType || "", trackerStage: trackerStage || "",
 			price: String(price ?? ""), paymentMethod: paymentMethod || "",
 			orderType: orderType || "", notes: (notes || "").slice(0, 400),
-		});
-		const callUrl = `${webhookBase}/voice?${params.toString()}`;
+		};
+		if (pageId) callParamObj["pageId"] = pageId;
+		const callUrl = `${webhookBase}/voice?${new URLSearchParams(callParamObj).toString()}`;
 		const creds   = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
 		const r2 = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json`, {
 			method: "POST",
@@ -366,6 +367,7 @@ r.post("/orders/:id/call", async (req, res) => {
 		const params = new URLSearchParams({
 			outbound: "true", callType: "order",
 			customerName, orderId,
+			pageId: req.params.id,
 			garmentType: garmentType || "", trackerStage: trackerStage || "",
 			price: String(price ?? ""), paymentMethod: paymentMethod || "",
 			orderType: orderType || "", notes: (notes || "").slice(0, 400),
@@ -462,14 +464,16 @@ r.patch("/orders/:id/callback", async (req, res) => {
 			NOTES: { rich_text: [{ type: "text", text: { content: existing ? `${existing}\n${noteText}` : noteText } }] },
 		});
 		const today = new Date().toISOString().split("T")[0];
-		await notionCreatePage(CALLBACKS_DB, {
+		const cbProps: Record<string, unknown> = {
 			CUSTOMER_NAME: { title: [{ type: "text", text: { content: getText(p["CUSTOMER_NAME"]) } }] },
 			ORDER_ID:      { rich_text: [{ type: "text", text: { content: getText(p["ORDER_ID"]) } }] },
-			PHONE:         { phone_number: p["ORDER_PHONE"]?.phone_number ?? "" },
 			REASON:        { rich_text: [{ type: "text", text: { content: req.body.reason } }] },
 			REQUESTED_AT:  { date: { start: today } },
 			STATUS:        { rich_text: [{ type: "text", text: { content: "Pending" } }] },
-		});
+		};
+		const phone = p["ORDER_PHONE"]?.phone_number;
+		if(phone) cbProps["PHONE"] = { phone_number: phone };
+		await notionCreatePage(CALLBACKS_DB, cbProps);
 		res.json(await fetchOrderPage(req.params.id));
 	} catch (err) { res.status(500).json({ error: String(err) }); }
 });
