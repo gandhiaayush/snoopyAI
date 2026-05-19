@@ -269,16 +269,39 @@ r.post("/callbacks/:id/call", async (req, res) => {
 	} catch (err) { res.status(500).json({ error: String(err) }); }
 });
 
-// GET /urgent  — overdue orders + ready-for-pickup orders (for callbacks tab)
+// GET /urgent  — overdue / due today / ready-for-pickup orders
 r.get("/urgent", async (req, res) => {
 	try {
 		const result = await notionQuery(ORDERS_DB);
 		const today  = new Date().toISOString().split("T")[0];
 		const all    = result.results.map(shapeOrder);
 		const active = all.filter(o => o.tracker !== "Delivered" && o.tracker !== "Cancelled" && o.tracker !== null);
-		const overdue       = active.filter(o => o.expectedDate && o.expectedDate < today);
-		const readyForPickup = active.filter(o => o.tracker === "Ready for Pickup" && !(o.expectedDate && o.expectedDate < today));
-		res.json({ overdue, readyForPickup });
+		const overdue        = active.filter(o => o.expectedDate && o.expectedDate < today);
+		const dueToday       = active.filter(o => o.expectedDate && o.expectedDate === today);
+		const urgentIds      = new Set([...overdue, ...dueToday].map(o => o.pageId));
+		const readyForPickup = active.filter(o => o.tracker === "Ready for Pickup" && !urgentIds.has(o.pageId));
+		res.json({ overdue, dueToday, readyForPickup });
+	} catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
+// POST /callbacks  — manually create a callback record
+r.post("/callbacks", async (req, res) => {
+	try {
+		const { customerName, phone, orderId, reason } = req.body as {
+			customerName: string; phone?: string; orderId?: string; reason: string;
+		};
+		if (!customerName || !reason) { res.status(400).json({ error: "customerName and reason required" }); return; }
+		const today = new Date().toISOString().split("T")[0];
+		const props: Record<string, unknown> = {
+			CUSTOMER_NAME: { title: [{ type: "text", text: { content: customerName } }] },
+			REASON:        { rich_text: [{ type: "text", text: { content: reason } }] },
+			REQUESTED_AT:  { date: { start: today } },
+			STATUS:        { rich_text: [{ type: "text", text: { content: "Pending" } }] },
+		};
+		if (orderId) props["ORDER_ID"] = { rich_text: [{ type: "text", text: { content: orderId } }] };
+		if (phone)   props["PHONE"]    = { phone_number: phone };
+		await notionCreatePage(CALLBACKS_DB, props);
+		res.json({ ok: true });
 	} catch (err) { res.status(500).json({ error: String(err) }); }
 });
 

@@ -517,22 +517,17 @@ tbody td{padding:11px 13px;font-size:.85rem;vertical-align:middle}
 
     <!-- ── CALLBACKS TAB ───────────────────────────────────────────────── -->
     <div class="tab-panel" id="tab-callbacks">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px">
-        <div style="font-family:var(--fh);font-weight:900;font-size:1.1rem">Pending Callbacks</div>
-      </div>
-      <div id="callbacks-container"><div style="text-align:center;padding:40px;color:var(--muted)">Click Callbacks tab to load…</div></div>
+      <div id="callbacks-container"><div style="text-align:center;padding:40px;color:var(--muted)">Loading…</div></div>
 
       <!-- Call Log -->
       <div style="margin-top:28px">
-        <div style="font-family:var(--fh);font-weight:800;font-size:.9rem;margin-bottom:12px">📋 Recent Call Log</div>
-        <div style="background:var(--surface);border:1.5px solid var(--border);border-radius:var(--r);padding:14px 18px;box-shadow:var(--shadow)">
-          <div id="call-log"></div>
-        </div>
+        <div class="tw-title" style="margin-bottom:12px">📋 Recent Call Log</div>
+        <div class="table-wrap" style="padding:14px 18px"><div id="call-log"></div></div>
       </div>
-      <div style="margin-top:24px" id="urgent-orders-container">
-        <div style="text-align:center;padding:20px;color:var(--muted);font-size:.85rem">Loading urgent orders…</div>
-      </div>
-    </div><!-- /callbacks extra -->
+
+      <!-- Urgent orders -->
+      <div style="margin-top:28px" id="urgent-orders-container"></div>
+    </div><!-- /callbacks -->
 
     </div><!-- /content-area -->
 </div><!-- /dashboard -->
@@ -713,6 +708,28 @@ tbody td{padding:11px 13px;font-size:.85rem;vertical-align:middle}
       <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end">
         <button class="btn btn-ghost" onclick="closeNewOrderModal()">Cancel</button>
         <button class="btn btn-primary" onclick="parseAndCreate()">Create Order ↵</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- NEW CALLBACK MODAL ───────────────────────────────────────────────────── -->
+<div class="mover" id="new-cb-modal" onclick="closeNewCallbackModal()">
+  <div class="modal" onclick="event.stopPropagation()" style="max-width:480px;width:95%">
+    <div class="modal-hdr">
+      <div class="modal-title">📞 New Callback</div>
+      <button class="modal-close" onclick="closeNewCallbackModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div class="fg"><label class="fl">Customer Name *</label><input class="finp" id="ncb-name" type="text" placeholder="e.g. Maria Garcia"/></div>
+        <div class="fg"><label class="fl">Phone</label><input class="finp" id="ncb-phone" type="text" placeholder="+14155551234"/></div>
+        <div class="fg"><label class="fl">Order ID</label><input class="finp" id="ncb-order" type="text" placeholder="ORD-0010"/></div>
+        <div class="fg"><label class="fl">Reason *</label><input class="finp" id="ncb-reason" type="text" placeholder="e.g. Wants to confirm expedited capacity for suit"/></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+        <button class="btn btn-ghost" onclick="closeNewCallbackModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitNewCallback()">Create Callback</button>
       </div>
     </div>
   </div>
@@ -984,8 +1001,32 @@ function showToast(msg, type){
 }
 
 /* ─── Keyboard ────────────────────────────────────────────────────────────── */
+function openNewCallbackModal(){
+  document.getElementById('new-cb-modal').classList.add('open');
+  setTimeout(()=>document.getElementById('ncb-name').focus(),50);
+}
+function closeNewCallbackModal(){
+  document.getElementById('new-cb-modal').classList.remove('open');
+  ['ncb-name','ncb-phone','ncb-order','ncb-reason'].forEach(id=>{ document.getElementById(id).value=''; });
+}
+async function submitNewCallback(){
+  const name   = document.getElementById('ncb-name').value.trim();
+  const phone  = document.getElementById('ncb-phone').value.trim();
+  const orderId = document.getElementById('ncb-order').value.trim();
+  const reason = document.getElementById('ncb-reason').value.trim();
+  if(!name||!reason){ showToast('Name and reason required','err'); return; }
+  try{
+    showToast('Creating…','');
+    const r = await fetch('/api/dashboard/callbacks',{method:'POST',headers:jsonH(),body:JSON.stringify({customerName:name,phone,orderId,reason})});
+    if(!r.ok) throw new Error(await r.text());
+    closeNewCallbackModal();
+    await loadCallbacks(); await loadStats();
+    showToast('Callback created ✓','ok');
+  } catch(e){ showToast('Failed: '+e,'err'); }
+}
+
 document.addEventListener('keydown', e => {
-  if(e.key==='Escape'){ closeDrawer(); closePriceModal(); closeNewOrderModal(); }
+  if(e.key==='Escape'){ closeDrawer(); closePriceModal(); closeNewOrderModal(); closeNewCallbackModal(); }
   if((e.metaKey||e.ctrlKey) && e.key==='k'){ e.preventDefault(); toggleAI(); }
 });
 
@@ -1261,54 +1302,45 @@ async function loadCallbacks(){
     const cbs = await (await fetch('/api/dashboard/callbacks',{headers:authH()})).json();
     const el  = document.getElementById('callbacks-container');
     document.getElementById('tb-cb').textContent = String(cbs.length);
-    if(!cbs.length){
-      el.innerHTML='<div style="text-align:center;padding:40px;color:var(--muted)">No pending callbacks ✓</div>';
-    } else {
-      const pending  = cbs.filter(c=>c.status==='Pending');
-      const approved = cbs.filter(c=>c.status==='Approved');
-      let html = '';
-      if(pending.length){
-        html += `<div style="font-size:.72rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin-bottom:10px">⏳ Awaiting Approval (${pending.length})</div>`;
-        html += pending.map(cb=>`
-          <div class="cb-card warn-cb" id="cb-${cb.callbackId}">
-            <div class="cb-icon">📞</div>
-            <div class="cb-body">
-              <div class="cb-name">${cb.customerName} — ${cb.orderId}</div>
-              <div class="cb-reason">"${cb.reason}"</div>
-              <div class="cb-meta" style="align-items:center;gap:6px">
-                <input id="phone-${cb.callbackId}" value="${cb.phone??''}" placeholder="+1..." style="font-family:var(--fm);font-size:.82rem;border:1.5px solid var(--border);border-radius:var(--rs);padding:4px 8px;background:var(--bg);outline:none;width:145px" onkeydown="if(event.key==='Enter')savePhone('${cb.callbackId}',this.value)"/>
-                <button class="btn btn-ghost btn-sm" onclick="savePhone('${cb.callbackId}',document.getElementById('phone-${cb.callbackId}').value)">Save</button>
-                <span class="td-mono" style="font-size:.72rem;color:var(--muted)">Req. ${cb.requestedAt??'?'}</span>
-              </div>
-            </div>
-            <div class="cb-actions" style="flex-direction:column;gap:6px">
-              <button class="btn btn-primary btn-sm" onclick="callNow('${cb.callbackId}','${cb.customerName}','${cb.orderId}','${(cb.reason||'').replace(/'/g,"\\'")}')">📲 Call Now</button>
-              <button class="btn btn-ghost btn-sm" onclick="approveCallback('${cb.callbackId}')">✓ Approve</button>
-              <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="resolveCallback('${cb.callbackId}',this)">✕ Dismiss</button>
-            </div>
-          </div>`).join('');
-      }
-      if(approved.length){
-        html += `<div style="font-size:.72rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--green);margin:${pending.length?'18px':0} 0 10px">🟢 Approved — Auto-calling next cycle (${approved.length})</div>`;
-        html += approved.map(cb=>`
-          <div class="cb-card" style="border-left:4px solid var(--green)" id="cb-${cb.callbackId}">
-            <div class="cb-icon">📲</div>
-            <div class="cb-body">
-              <div class="cb-name">${cb.customerName} — ${cb.orderId}</div>
-              <div class="cb-reason">"${cb.reason}"</div>
-              <div class="cb-meta" style="align-items:center;gap:6px">
-                <input id="phone-${cb.callbackId}" value="${cb.phone??''}" placeholder="+1..." style="font-family:var(--fm);font-size:.82rem;border:1.5px solid var(--border);border-radius:var(--rs);padding:4px 8px;background:var(--bg);outline:none;width:145px" onkeydown="if(event.key==='Enter')savePhone('${cb.callbackId}',this.value)"/>
-                <button class="btn btn-ghost btn-sm" onclick="savePhone('${cb.callbackId}',document.getElementById('phone-${cb.callbackId}').value)">Save</button>
-                <span class="badge b-open" style="font-size:.65rem">~2 min</span>
-              </div>
-            </div>
-            <div class="cb-actions">
-              <button class="btn btn-primary btn-sm" onclick="callNow('${cb.callbackId}','${cb.customerName}','${cb.orderId}','${(cb.reason||'').replace(/'/g,"\\'")}')">📲 Call Now</button>
-            </div>
-          </div>`).join('');
-      }
-      el.innerHTML = html;
-    }
+
+    const rows = cbs.length ? cbs.map(cb => {
+      const isPending  = cb.status === 'Pending';
+      const isApproved = cb.status === 'Approved';
+      const statusBadge = isPending ? 'b-cb' : 'b-open';
+      const esc = s => (s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+      return `<tr id="cb-${cb.callbackId}">
+        <td><span class="badge ${statusBadge}" style="font-size:.63rem">${cb.status}</span></td>
+        <td class="td-name" style="font-size:.85rem">${cb.customerName}</td>
+        <td class="td-mono">${cb.orderId||'—'}</td>
+        <td><input id="phone-${cb.callbackId}" value="${cb.phone??''}" placeholder="+1..." style="font-family:var(--fm);font-size:.78rem;border:1px solid var(--border);padding:3px 8px;background:var(--bg);outline:none;width:130px" onkeydown="if(event.key==='Enter')savePhone('${cb.callbackId}',this.value)"/></td>
+        <td style="font-size:.8rem;color:var(--muted);font-style:italic;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(cb.reason)}">${cb.reason||'—'}</td>
+        <td class="td-mono" style="font-size:.75rem">${cb.requestedAt??'?'}</td>
+        <td>
+          <div style="display:flex;gap:5px;align-items:center;flex-wrap:nowrap">
+            <button class="btn btn-primary btn-sm" onclick="callNow('${cb.callbackId}','${esc(cb.customerName)}','${cb.orderId||''}','${esc(cb.reason)}')">📲 Call</button>
+            ${isPending ? `<button class="btn btn-ghost btn-sm" onclick="approveCallback('${cb.callbackId}')">✓ Approve</button>` : isApproved ? `<span class="badge b-open" style="font-size:.6rem">~2 min</span>` : ''}
+            <button class="btn btn-ghost btn-sm" style="color:var(--muted)" onclick="resolveCallback('${cb.callbackId}')">✕</button>
+          </div>
+        </td>
+      </tr>`;
+    }).join('') : `<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--muted)">No pending callbacks ✓</td></tr>`;
+
+    el.innerHTML = `<div class="table-wrap">
+      <div class="tw-hdr">
+        <div class="tw-title">Callbacks</div>
+        <div style="display:flex;gap:9px;align-items:center">
+          <span class="tw-meta">${cbs.length} pending</span>
+          <button class="btn btn-primary btn-sm" onclick="openNewCallbackModal()">+ New Callback</button>
+        </div>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Status</th><th>Customer</th><th>Order</th><th>Phone</th><th>Reason</th><th>Requested</th><th>Actions</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+
     await loadCallLog();
   } catch(e){ console.error('loadCallbacks:',e); }
 }
@@ -1328,7 +1360,7 @@ function urgentCardHtml(o, icon){
     + '<div class="cb-icon">' + icon + '</div>'
     + '<div class="cb-body">'
     + '<div class="cb-name">' + o.customerName + ' — ' + o.orderId + '</div>'
-    + '<div class="cb-reason">' + (o.garmentType || 'Order') + (icon === '🚨' ? ' due ' + (o.expectedDate || '?') + '. Stage: ' + (o.tracker || '—') : ' ready. Customer not yet collected.') + '.</div>'
+    + '<div class="cb-reason">' + (o.garmentType || 'Order') + (icon === '🚨' ? ' due ' + (o.expectedDate || '?') + '. Stage: ' + (o.tracker || '—') : icon === '⚠️' ? ' due today. Stage: ' + (o.tracker || '—') : ' ready. Customer not yet collected.') + '.</div>'
     + '<div class="cb-meta">' + typeBadge + payBadge + datePart + '</div>'
     + '</div>'
     + '<div class="cb-actions"><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();openDrawerForOrder(\'' + o.pageId + '\')">View</button></div>'
@@ -1341,13 +1373,19 @@ async function loadUrgentOrders(){
   try{
     const d = await (await fetch('/api/dashboard/urgent',{headers:authH()})).json();
     let html = '';
+    const gap = () => html.length ? '18px' : '0';
+    const lbl = (icon, text, n) => `<div style="font-size:.72rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--red);margin:${gap()} 0 10px">${icon} ${text} (${n})</div>`;
     if(d.overdue && d.overdue.length){
-      html += '<div style="font-size:.72rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--red);margin-bottom:10px">🚨 Overdue / Due Today (' + d.overdue.length + ')</div>';
-      html += d.overdue.map(o => urgentCardHtml(o, '🚨')).join('');
+      html += lbl('🚨','Overdue', d.overdue.length);
+      html += d.overdue.map(o => urgentCardHtml(o,'🚨')).join('');
+    }
+    if(d.dueToday && d.dueToday.length){
+      html += lbl('⚠️','Due Today', d.dueToday.length);
+      html += d.dueToday.map(o => urgentCardHtml(o,'⚠️')).join('');
     }
     if(d.readyForPickup && d.readyForPickup.length){
-      html += '<div style="font-size:.72rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin:' + (d.overdue && d.overdue.length ? '18px' : '0') + ' 0 10px">⏰ Ready for Pickup (' + d.readyForPickup.length + ')</div>';
-      html += d.readyForPickup.map(o => urgentCardHtml(o, '⏰')).join('');
+      html += `<div style="font-size:.72rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin:${gap()} 0 10px">⏰ Ready for Pickup (${d.readyForPickup.length})</div>`;
+      html += d.readyForPickup.map(o => urgentCardHtml(o,'⏰')).join('');
     }
     container.innerHTML = html || '';
   } catch(e){ console.error('loadUrgentOrders:',e); container.innerHTML=''; }
@@ -1396,10 +1434,10 @@ async function approveCallback(id){
   } catch(e){ showToast('Failed','err'); }
 }
 
-async function resolveCallback(id,btn){
+async function resolveCallback(id){
   try{
     await fetch(`/api/dashboard/callbacks/${id}/resolve`,{method:'POST',headers:jsonH()});
-    btn.closest('.cb-card').remove();
+    document.getElementById('cb-'+id)?.remove();
     await loadStats();
     showToast('Dismissed ✓','ok');
   } catch(e){ showToast('Failed','err'); }
