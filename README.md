@@ -1,4 +1,4 @@
-# Charlie's Cleaners — AI Voice Agent + Owner Dashboard
+# Snoopy AI — AI Voice Agent + Owner Dashboard
 
 > **A phone number that thinks.** Customers call to place and check dry cleaning orders. The owner gets a live dashboard to manage everything. Every interaction writes directly to Notion in real time.
 
