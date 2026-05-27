@@ -23,6 +23,24 @@ const callbackCallLog = worker.database("callbackCallLog", {
 	},
 });
 
+const scheduledPickups = worker.database("scheduledPickups", {
+	type: "managed",
+	initialTitle: "Scheduled Pickups",
+	primaryKeyProperty: "PICKUP_ID",
+	schema: {
+		properties: {
+			"PICKUP_ID":            Schema.title(),
+			"CUSTOMER_NAME":        Schema.richText(),
+			"ORDER_PHONE":          Schema.phoneNumber(),
+			"ADDRESS":              Schema.richText(),
+			"SCHEDULED_DATETIME":   Schema.date(),
+			"ORDER_IDS":            Schema.richText(),
+			"REMINDER_SENT":        Schema.checkbox(),
+			"REMINDER_CALL_STATUS": Schema.richText(),
+		},
+	},
+});
+
 // Set these in .env or push via `ntn workers env push`
 // To find IDs: ntn datasources resolve <database-id>
 function ordersDs(): string {
@@ -854,6 +872,96 @@ worker.sync("pickupPoller", {
 				},
 			});
 		}
+		return { changes, hasMore: false };
+	},
+});
+
+// ─── SCHEDULED PICKUP REMINDER POLLER ────────────────────────────────────────
+// Runs every 30 min. Finds upcoming scheduled pickups and calls REMINDER_CALL_LEAD_HOURS before.
+
+worker.sync("pickupReminderPoller", {
+	database: callbackCallLog,
+	mode: "incremental",
+	schedule: "30m",
+	execute: async (_state, { notion }) => {
+		const leadHours = parseInt(process.env.REMINDER_CALL_LEAD_HOURS ?? "24", 10);
+		const now = new Date();
+		const cutoff = new Date(now.getTime() + leadHours * 60 * 60 * 1000);
+		const today = now.toISOString().split("T")[0];
+
+		const pickupsDsId = process.env.SCHEDULED_PICKUPS_DATA_SOURCE_ID;
+		if (!pickupsDsId) return { changes: [], hasMore: false };
+
+		const res = await notion.dataSources.query({
+			data_source_id: pickupsDsId,
+			page_size: 50,
+		});
+
+		const { accountSid, authToken, fromNumber, webhookBase } = twilioEnv();
+		const base = webhookBase.replace(/\/$/, "");
+		const changes: any[] = [];
+
+		for (const page of res.results) {
+			const p = (page as any).properties;
+			const reminderSent = p["REMINDER_SENT"]?.checkbox === true;
+			if (reminderSent) continue;
+
+			const scheduledRaw: string | null = p["SCHEDULED_DATETIME"]?.date?.start ?? null;
+			if (!scheduledRaw) continue;
+			const scheduledDate = new Date(scheduledRaw);
+			if (scheduledDate > cutoff || scheduledDate < now) continue;
+
+			const phone: string | null = p["ORDER_PHONE"]?.phone_number ?? null;
+			const customerName = getText(p["CUSTOMER_NAME"]);
+			const orderIds = getText(p["ORDER_IDS"]) || "";
+			if (!phone) continue;
+
+			let result = "Called";
+			try {
+				const callParams = new URLSearchParams({
+					outbound: "true", callType: "pickup_reminder",
+					customerName, orderId: orderIds,
+					reason: `Scheduled pickup reminder — arriving ${scheduledRaw}`,
+				});
+				const callUrl = `${base}/voice?${callParams.toString()}`;
+				const creds = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
+				const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json`, {
+					method: "POST",
+					headers: { Authorization: `Basic ${creds}`, "Content-Type": "application/x-www-form-urlencoded" },
+					body: new URLSearchParams({ To: phone, From: fromNumber, Url: callUrl }),
+				});
+				if (!r.ok) throw new Error(await r.text());
+				await notion.pages.update({
+					page_id: page.id,
+					properties: {
+						REMINDER_SENT: { checkbox: true } as any,
+						REMINDER_CALL_STATUS: { rich_text: [{ type: "text", text: { content: "Called" } }] },
+					},
+				});
+			} catch (_e) {
+				result = "Failed";
+				await notion.pages.update({
+					page_id: page.id,
+					properties: {
+						REMINDER_CALL_STATUS: { rich_text: [{ type: "text", text: { content: `Failed: ${String(_e).slice(0,80)}` } }] },
+					},
+				});
+			}
+
+			changes.push({
+				type: "upsert" as const,
+				key: `pickup-reminder-${page.id}-${today}`,
+				properties: {
+					"Customer":    Builder.title(customerName),
+					"Callback ID": Builder.richText(`pickup-reminder-${page.id}`),
+					"Phone":       Builder.richText(phone),
+					"Reason":      Builder.richText("Scheduled pickup reminder"),
+					"Called At":   Builder.date(today),
+					"Result":      Builder.select(result),
+				},
+			});
+		}
+
 		return { changes, hasMore: false };
 	},
 });

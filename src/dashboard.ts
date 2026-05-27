@@ -78,6 +78,7 @@ async function notionCreatePage(databaseId: string, properties: Record<string, u
 const ORDERS_DB    = "3625d395-6c96-8080-b502-cdd3f4e57863";
 const PRICING_DB   = "3625d395-6c96-8085-8029-c9b12fcf3636";
 const CALLBACKS_DB = "3625d395-6c96-800a-9f2c-db85d7fdbab1";
+const SCHEDULED_PICKUPS_DB = process.env.SCHEDULED_PICKUPS_DATABASE_ID ?? "";
 
 app.use(cors());
 app.use(express.json());
@@ -110,6 +111,20 @@ function shapeOrder(page: any) {
 
 async function fetchOrderPage(pageId: string) {
 	return shapeOrder(await notionGetPage(pageId));
+}
+
+function shapePickup(page: any) {
+	const p = page.properties;
+	return {
+		pickupId:            page.id as string,
+		customerName:        getText(p["CUSTOMER_NAME"]),
+		phone:               (p["ORDER_PHONE"]?.phone_number ?? null) as string | null,
+		address:             getText(p["ADDRESS"]) || null,
+		scheduledDatetime:   (p["SCHEDULED_DATETIME"]?.date?.start ?? null) as string | null,
+		orderIds:            getText(p["ORDER_IDS"]) || null,
+		reminderSent:        (p["REMINDER_SENT"]?.checkbox ?? false) as boolean,
+		reminderCallStatus:  getText(p["REMINDER_CALL_STATUS"]) || null,
+	};
 }
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -543,6 +558,56 @@ r.get("/twiml/callback", (req, res) => {
 </Response>`;
 
   res.type("text/xml").send(twiml);
+});
+
+// GET /pickups
+r.get("/pickups", async (req, res) => {
+	try {
+		if (!SCHEDULED_PICKUPS_DB) { res.json([]); return; }
+		const result = await notionQuery(SCHEDULED_PICKUPS_DB);
+		res.json(result.results.map(shapePickup));
+	} catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
+// POST /pickups
+r.post("/pickups", async (req, res) => {
+	if (!SCHEDULED_PICKUPS_DB) { res.status(500).json({ error: "SCHEDULED_PICKUPS_DATABASE_ID not set" }); return; }
+	const { customerName, phone, address, scheduledDatetime, orderIds } = req.body as {
+		customerName: string; phone?: string; address?: string;
+		scheduledDatetime?: string; orderIds?: string;
+	};
+	if (!customerName) { res.status(400).json({ error: "customerName required" }); return; }
+	try {
+		const props: Record<string, unknown> = {
+			CUSTOMER_NAME:       { title: [{ type: "text", text: { content: customerName } }] },
+			REMINDER_SENT:       { checkbox: false },
+			REMINDER_CALL_STATUS:{ rich_text: [{ type: "text", text: { content: "" } }] },
+		};
+		if (phone)             props["ORDER_PHONE"]          = { phone_number: phone };
+		if (address)           props["ADDRESS"]              = { rich_text: [{ type: "text", text: { content: address } }] };
+		if (scheduledDatetime) props["SCHEDULED_DATETIME"]   = { date: { start: scheduledDatetime } };
+		if (orderIds)          props["ORDER_IDS"]            = { rich_text: [{ type: "text", text: { content: orderIds } }] };
+		const page = await notionCreatePage(SCHEDULED_PICKUPS_DB, props);
+		res.json(shapePickup(page));
+	} catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
+// PATCH /pickups/:id
+r.patch("/pickups/:id", async (req, res) => {
+	try {
+		const { address, scheduledDatetime, orderIds, reminderSent, reminderCallStatus } = req.body as {
+			address?: string; scheduledDatetime?: string; orderIds?: string;
+			reminderSent?: boolean; reminderCallStatus?: string;
+		};
+		const updates: Record<string, unknown> = {};
+		if (address !== undefined)           updates["ADDRESS"]               = { rich_text: [{ type: "text", text: { content: address } }] };
+		if (scheduledDatetime !== undefined) updates["SCHEDULED_DATETIME"]    = { date: { start: scheduledDatetime } };
+		if (orderIds !== undefined)          updates["ORDER_IDS"]             = { rich_text: [{ type: "text", text: { content: orderIds } }] };
+		if (reminderSent !== undefined)      updates["REMINDER_SENT"]         = { checkbox: reminderSent };
+		if (reminderCallStatus !== undefined)updates["REMINDER_CALL_STATUS"]  = { rich_text: [{ type: "text", text: { content: reminderCallStatus } }] };
+		await notionUpdatePage(req.params.id, updates);
+		res.json(shapePickup(await notionGetPage(req.params.id)));
+	} catch (err) { res.status(500).json({ error: String(err) }); }
 });
 
 app.use("/api/dashboard", r);

@@ -397,6 +397,14 @@ tbody td{padding:11px 13px;font-size:.85rem;vertical-align:middle}
 #cal-wrap .fc-event-exp { background: #0D0D0D; border-color: #0D0D0D; color: #fff; }
 #cal-wrap .fc-event-reg { background: #555; border-color: #555; color: #fff; }
 #cal-wrap .fc-event-done { background: #aaa; border-color: #aaa; color: #fff; }
+
+/* ─── Scheduled Pickups Tab ─────────────────────────────────────────── */
+.pickup-card{background:var(--surface);border:1.5px solid var(--border);border-radius:var(--r);padding:14px 16px;margin-bottom:10px;cursor:default}
+.pickup-card-hdr{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.pickup-name{font-family:var(--fh);font-size:.95rem;font-weight:800}
+.pickup-meta{font-size:.75rem;color:var(--muted);font-family:var(--fm);margin-top:3px}
+.pickup-badge{display:inline-block;font-size:.62rem;font-weight:700;letter-spacing:.06em;padding:2px 7px;border-radius:var(--rs);background:#0D0D0D;color:#fff}
+.pickup-badge.sent{background:#aaa}
 </style>
 <link href='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css' rel='stylesheet' />
 <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js'></script>
@@ -437,6 +445,9 @@ tbody td{padding:11px 13px;font-size:.85rem;vertical-align:middle}
     </div>
     <div class="tab" data-tab="calendar" onclick="switchTab('calendar')">
       📅 Calendar
+    </div>
+    <div class="tab" data-tab="pickups" onclick="switchTab('pickups')">
+      🚗 Scheduled Pickups
     </div>
 
   </nav>
@@ -546,6 +557,20 @@ tbody td{padding:11px 13px;font-size:.85rem;vertical-align:middle}
     <div class="tab-panel" id="tab-calendar">
       <div id="cal-wrap">
         <div id="cal"></div>
+      </div>
+    </div>
+
+    <!-- ── SCHEDULED PICKUPS TAB ─────────────────────────────────────────── -->
+    <div class="tab-panel" id="tab-pickups">
+      <div style="padding:20px 24px">
+        <div class="tw-hdr" style="margin-bottom:16px">
+          <div>
+            <div class="tw-title">🚗 Scheduled Pickups</div>
+            <div style="font-size:.75rem;color:var(--muted);margin-top:4px">Reminder calls fire automatically — no manual trigger needed</div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="openNewPickupModal()">+ Schedule Pickup</button>
+        </div>
+        <div id="pickups-list"><div style="text-align:center;padding:40px;color:var(--muted)">Loading…</div></div>
       </div>
     </div>
 
@@ -755,6 +780,29 @@ tbody td{padding:11px 13px;font-size:.85rem;vertical-align:middle}
   </div>
 </div>
 
+<!-- NEW PICKUP MODAL ─────────────────────────────────────────────────────── -->
+<div class="mover" id="new-pickup-modal" onclick="closeNewPickupModal()">
+  <div class="modal" onclick="event.stopPropagation()" style="max-width:480px;width:95%">
+    <div class="modal-hdr">
+      <div class="modal-title">🚗 Schedule Pickup</div>
+      <button class="modal-close" onclick="closeNewPickupModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div class="fg"><label class="fl">Customer Name *</label><input class="finp" id="np-name" type="text" placeholder="e.g. Maria Garcia"/></div>
+        <div class="fg"><label class="fl">Phone</label><input class="finp" id="np-phone" type="text" placeholder="+14155551234"/></div>
+        <div class="fg"><label class="fl">Address</label><input class="finp" id="np-address" type="text" placeholder="123 Main St"/></div>
+        <div class="fg"><label class="fl">Scheduled Date/Time *</label><input class="finp" id="np-datetime" type="datetime-local" style="font-family:var(--fm);font-size:.8rem"/></div>
+        <div class="fg"><label class="fl">Order IDs</label><input class="finp" id="np-orders" type="text" placeholder="ORD-0010, ORD-0011"/></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+        <button class="btn btn-ghost" onclick="closeNewPickupModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitNewPickup()">Schedule</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- TOAST ─────────────────────────────────────────────────────────────────── -->
 <div class="toast" id="toast">Saved ✓</div>
 
@@ -807,6 +855,7 @@ function switchTab(name){
   if(name==='callbacks'){ loadCallbacks(); loadUrgentOrders(); }
   if(name==='orders')    loadOrders(getFilters());
   if(name==='calendar'){ initCalendar(); loadCalendarOrders(); }
+  if(name==='pickups')   loadPickups();
 }
 
 /* ─── Drawer ──────────────────────────────────────────────────────────────── */
@@ -1047,7 +1096,7 @@ async function submitNewCallback(){
 }
 
 document.addEventListener('keydown', e => {
-  if(e.key==='Escape'){ closeDrawer(); closePriceModal(); closeNewOrderModal(); closeNewCallbackModal(); }
+  if(e.key==='Escape'){ closeDrawer(); closePriceModal(); closeNewOrderModal(); closeNewCallbackModal(); closeNewPickupModal(); }
   if((e.metaKey||e.ctrlKey) && e.key==='k'){ e.preventDefault(); toggleAI(); }
 });
 
@@ -1353,7 +1402,8 @@ async function loadCallbacks(){
 
     el.innerHTML = `<div class="table-wrap">
       <div class="tw-hdr">
-        <div class="tw-title">Callbacks</div>
+        <div class="tw-title">Manual Callbacks</div>
+        <div style="font-size:.73rem;color:var(--muted);margin-top:2px">Owner-initiated — use for ad hoc follow-ups</div>
         <div style="display:flex;gap:9px;align-items:center">
           <span class="tw-meta">${cbs.length} pending</span>
           <button class="btn btn-primary btn-sm" onclick="openNewCallbackModal()">+ New Callback</button>
@@ -1487,6 +1537,58 @@ async function loadCallLog(){
         <span class="badge ${c.result==='Called'?'b-open':'b-unpaid'}" style="font-size:.65rem">${c.result}</span>
       </div>`).join('');
   } catch(e){ console.error('loadCallLog:',e); }
+}
+
+/* ─── Scheduled Pickups ──────────────────────────────────────────────────────── */
+function openNewPickupModal(){
+  document.getElementById('new-pickup-modal').classList.add('open');
+  setTimeout(()=>document.getElementById('np-name').focus(),50);
+}
+function closeNewPickupModal(){
+  document.getElementById('new-pickup-modal').classList.remove('open');
+  ['np-name','np-phone','np-address','np-datetime','np-orders'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+}
+async function loadPickups(){
+  const el=document.getElementById('pickups-list');
+  if(!el) return;
+  try{
+    const res=await fetch('/api/dashboard/pickups',{headers:authH()});
+    const pickups=await res.json();
+    if(!res.ok||!Array.isArray(pickups)){
+      el.innerHTML=`<div style="text-align:center;padding:30px;color:var(--muted)">Error loading pickups${pickups?.error?': '+pickups.error:''}</div>`;
+      return;
+    }
+    if(!pickups.length){ el.innerHTML=`<div style="text-align:center;padding:40px;color:var(--muted)">No scheduled pickups</div>`; return; }
+    el.innerHTML=pickups.map(p=>`
+      <div class="pickup-card">
+        <div class="pickup-card-hdr">
+          <div>
+            <div class="pickup-name">${p.customerName}</div>
+            <div class="pickup-meta">${p.scheduledDatetime??'No date set'} · ${p.address||'No address'}</div>
+            ${p.orderIds?`<div class="pickup-meta">Orders: ${p.orderIds}</div>`:''}
+          </div>
+          <span class="pickup-badge${p.reminderSent?' sent':''}">
+            ${p.reminderSent?'Reminder Sent':'Pending Reminder'}
+          </span>
+        </div>
+      </div>`).join('');
+  } catch(e){ console.error('loadPickups:',e); }
+}
+async function submitNewPickup(){
+  const name=document.getElementById('np-name').value.trim();
+  const phone=document.getElementById('np-phone').value.trim();
+  const address=document.getElementById('np-address').value.trim();
+  const dt=document.getElementById('np-datetime').value.trim();
+  const orders=document.getElementById('np-orders').value.trim();
+  if(!name||!dt){ showToast('Name and datetime required','err'); return; }
+  try{
+    showToast('Scheduling…','');
+    const r=await fetch('/api/dashboard/pickups',{method:'POST',headers:jsonH(),body:JSON.stringify({customerName:name,phone,address,scheduledDatetime:dt,orderIds:orders})});
+    if(!r.ok) throw new Error(await r.text());
+    closeNewPickupModal();
+    await loadPickups();
+    showToast('Pickup scheduled ✓','ok');
+  } catch(e){ showToast('Failed: '+e,'err'); }
 }
 
 /* ─── Prices modal ───────────────────────────────────────────────────────────── */
