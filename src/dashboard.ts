@@ -542,7 +542,7 @@ r.post("/parse-order", async (req, res) => {
         messages: [
           {
             role: "system",
-            content: `You are an order parser for a dry cleaning shop. Today is ${today}. Extract fields from natural language and return a JSON object with these optional keys: customerName (string), phone (E.164 string, e.g. "+14155551234"), garmentType (string, one of: Shirt, Pants, Dress, Suit, Jacket, Coat, Skirt, Wedding Dress, Other), orderType ("Regular" or "Expedited"), price (number, dollars), expectedDate (YYYY-MM-DD string), notes (string). Only include keys you are confident about. Never guess customerName.`,
+            content: `You are an order parser for a dry cleaning shop. Today is ${today}. Extract fields from natural language and return a JSON object with these optional keys: customerName (string, the person's full name if clearly stated), phone (E.164 string, e.g. "+14155551234"), garmentType (string, one of: Shirt, Pants, Dress, Suit, Jacket, Coat, Skirt, Wedding Dress, Other), orderType ("Regular" or "Expedited"), price (number, dollars), expectedDate (YYYY-MM-DD string), notes (string). Only include keys you are confident about. Extract customerName if it is explicitly stated in the text; omit it if ambiguous.`,
           },
           { role: "user", content: text },
         ],
@@ -604,6 +604,45 @@ r.patch("/pickups/:id", async (req, res) => {
 		if (reminderCallStatus !== undefined)updates["REMINDER_CALL_STATUS"]  = { rich_text: [{ type: "text", text: { content: reminderCallStatus } }] };
 		await notionUpdatePage(req.params.id, updates);
 		res.json(shapePickup(await notionGetPage(req.params.id)));
+	} catch (err) { res.status(500).json({ error: String(err) }); }
+});
+
+// POST /pickups/:id/call — manually trigger a pickup reminder call (demo / override)
+r.post("/pickups/:id/call", async (req, res) => {
+	try {
+		const page = await notionGetPage(req.params.id);
+		const p = page.properties;
+		const phone: string | null = p["ORDER_PHONE"]?.phone_number ?? null;
+		const customerName = getText(p["CUSTOMER_NAME"]);
+		const orderIds = getText(p["ORDER_IDS"]) || "";
+		const scheduledDatetime: string | null = p["SCHEDULED_DATETIME"]?.date?.start ?? null;
+		if (!phone) { res.status(400).json({ error: "No phone number on this pickup" }); return; }
+		const accountSid  = process.env.TWILIO_ACCOUNT_SID;
+		const authToken   = process.env.TWILIO_AUTH_TOKEN;
+		const fromNumber  = process.env.TWILIO_PHONE_NUMBER;
+		const webhookBase = process.env.TWILIO_WEBHOOK_BASE?.replace(/\/$/, "");
+		if (!accountSid || !authToken || !fromNumber || !webhookBase) {
+			res.status(500).json({ error: "Twilio env vars not set" }); return;
+		}
+		const callParams = new URLSearchParams({
+			outbound: "true", callType: "pickup_reminder",
+			customerName, orderId: orderIds,
+			reason: `Scheduled pickup reminder${scheduledDatetime ? ` — arriving ${scheduledDatetime}` : ""}`,
+		});
+		const callUrl = `${webhookBase}/voice?${callParams.toString()}`;
+		const creds = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
+		const r2 = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json`, {
+			method: "POST",
+			headers: { Authorization: `Basic ${creds}`, "Content-Type": "application/x-www-form-urlencoded" },
+			body: new URLSearchParams({ To: phone, From: fromNumber, Url: callUrl }),
+		});
+		if (!r2.ok) { res.status(500).json({ error: await r2.text() }); return; }
+		const { sid } = await r2.json() as { sid: string };
+		await notionUpdatePage(req.params.id, {
+			REMINDER_SENT: { checkbox: true },
+			REMINDER_CALL_STATUS: { rich_text: [{ type: "text", text: { content: "Called (manual)" } }] },
+		});
+		res.json({ ok: true, callSid: sid, called: phone });
 	} catch (err) { res.status(500).json({ error: String(err) }); }
 });
 

@@ -1439,16 +1439,19 @@ async function loadPickups(){
       return;
     }
     el.innerHTML = pickups.map(p => `
-      <div class="pickup-card">
+      <div class="pickup-card" id="pickup-${p.pickupId}">
         <div class="pickup-card-hdr">
           <div>
             <div class="pickup-name">${p.customerName}</div>
             <div class="pickup-meta">${p.scheduledDatetime ?? 'No date'} · ${p.address || 'No address'}</div>
             ${p.orderIds ? `<div class="pickup-meta">Orders: ${p.orderIds}</div>` : ''}
           </div>
-          <span class="pickup-badge${p.reminderSent ? ' sent' : ''}">
-            ${p.reminderSent ? 'Reminder Sent' : 'Pending'}
-          </span>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="pickup-badge${p.reminderSent ? ' sent' : ''}">
+              ${p.reminderSent ? 'Reminder Sent' : 'Pending'}
+            </span>
+            <button class="btn btn-primary btn-sm" onclick="sendPickupCall('${p.pickupId}')">Call Now</button>
+          </div>
         </div>
       </div>`).join('');
   } catch(e) {
@@ -1471,6 +1474,19 @@ async function submitNewPickup(){
     await loadPickups();
     showToast('Pickup scheduled ✓','ok');
   } catch(e){ showToast('Failed: '+e,'err'); }
+}
+
+async function sendPickupCall(pickupId){
+  const btn = event.target;
+  btn.textContent='Calling…'; btn.disabled=true;
+  try{
+    const r = await fetch(`/api/dashboard/pickups/${pickupId}/call`,{method:'POST',headers:jsonH()});
+    const d = await r.json();
+    if(!r.ok){ showToast('Call failed: '+(d.error||'unknown'),'err'); return; }
+    showToast(`Calling ✓ (SID …${d.callSid.slice(-6)})`,'ok');
+    await loadPickups();
+  } catch(e){ showToast('Call failed: '+e,'err'); }
+  finally{ btn.textContent='Call Now'; btn.disabled=false; }
 }
 
 /* ─── Prices modal ───────────────────────────────────────────────────────────── */
