@@ -71,8 +71,9 @@ body{background:var(--bg);color:var(--black);font-family:'Times New Roman',Times
 
 /* ─── Stat Cards ──────────────────────────────────────────────────────── */
 .stats-bar{display:flex;gap:0;border-bottom:1px solid var(--gray-mid);background:var(--white);flex-shrink:0;}
-.sc{flex:1;padding:14px 20px;border-right:1px solid var(--gray-mid);}
+.sc{flex:1;padding:14px 20px;border-right:1px solid var(--gray-mid);display:flex;align-items:center;gap:14px;}
 .sc:last-child{border-right:none;}
+.sc-icon{font-size:1.6rem;padding:10px 12px;border:1px solid var(--gray-mid);background:var(--gray-light);flex-shrink:0;}
 .sc-val{font-family:'Times New Roman',Times,serif;font-size:1.6rem;font-weight:700;}
 .sc-lbl{font-size:.7rem;letter-spacing:.07em;text-transform:uppercase;color:var(--gray-text);margin-top:2px;}
 
@@ -121,7 +122,15 @@ tbody td{padding:10px 12px;vertical-align:middle;}
 .pg-btn:disabled{opacity:.4;cursor:default;}
 
 /* ─── Badges ──────────────────────────────────────────────────────────── */
-.badge{display:inline-block;font-size:.7rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--black);background:transparent;padding:0;border:none;}
+.badge{display:inline-block;font-size:.7rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--black);background:transparent;padding:2px 0;border:none;}
+.b-g{border:1px solid #bbb;padding:2px 9px;border-radius:4px;text-transform:none;letter-spacing:0;font-size:.8rem;font-weight:600;background:var(--white);}
+.b-exp{background:var(--black);color:var(--white);padding:3px 9px;}
+.b-reg{border:1px solid var(--black);padding:3px 9px;}
+.b-open{background:var(--black);color:var(--white);padding:3px 8px;}
+.b-closed{background:var(--gray-text);color:var(--white);padding:3px 8px;}
+.b-paid{color:var(--black);}
+.b-unpaid{color:var(--black);font-style:italic;}
+.b-cb{border:1px solid var(--black);padding:3px 8px;}
 
 /* ─── Tracker pill ────────────────────────────────────────────────────── */
 .tp{display:flex;align-items:center;gap:3px;font-size:.73rem;white-space:nowrap;}
@@ -279,17 +288,17 @@ input:focus,select:focus,textarea:focus{border-color:var(--black);}
   <!-- Tab Bar -->
   <nav class="tab-bar">
     <div class="tab active" data-tab="orders" onclick="switchTab('orders')">
-      Orders
+      📋 Orders
     </div>
-    
+
     <div class="tab" data-tab="callbacks" onclick="switchTab('callbacks')">
-      Callbacks <span class="tab-badge" id="tb-cb">0</span>
+      📞 Callbacks <span class="tab-badge" id="tb-cb">0</span>
     </div>
     <div class="tab" data-tab="calendar" onclick="switchTab('calendar')">
-      Calendar
+      📅 Calendar
     </div>
     <div class="tab" data-tab="pickups" onclick="switchTab('pickups')">
-      Scheduled Pickups
+      🚗 Scheduled Pickups
     </div>
 
   </nav>
@@ -302,15 +311,19 @@ input:focus,select:focus,textarea:focus{border-color:var(--black);}
       <!-- Stats -->
       <div class="stats-bar">
         <div class="sc">
+          <div class="sc-icon">🐾</div>
           <div><div class="sc-val" data-stat="open">—</div><div class="sc-lbl">Open Orders</div></div>
         </div>
-        <div class="sc warn">
+        <div class="sc">
+          <div class="sc-icon">🚀</div>
           <div><div class="sc-val" data-stat="expedited">—</div><div class="sc-lbl">Expedited</div></div>
         </div>
-        <div class="sc urgent">
+        <div class="sc">
+          <div class="sc-icon">💳</div>
           <div><div class="sc-val" data-stat="unpaid">—</div><div class="sc-lbl">Unpaid</div></div>
         </div>
-        <div class="sc info">
+        <div class="sc">
+          <div class="sc-icon">📞</div>
           <div><div class="sc-val" data-stat="callbacks">—</div><div class="sc-lbl">Callbacks</div></div>
         </div>
       </div>
