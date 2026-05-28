@@ -30,7 +30,8 @@ export async function getCallerRole(phone: string): Promise<{ role: "owner" | "c
     .from("callers")
     .select("role, name")
     .eq("phone_number", phone)
-    .single();
+    .maybeSingle()
+    .throwOnError();
 
   return data ?? { role: "consumer", name: null };
 }
@@ -41,16 +42,19 @@ export async function createSession(
   callerRole: "owner" | "consumer",
   outboundContext?: OutboundContext
 ): Promise<void> {
-  await supabase.from("call_sessions").insert({
-    call_sid: callSid,
-    caller_phone: callerPhone,
-    caller_role: callerRole,
-    messages: [],
-    turn_count: 0,
-    status: "active",
-    is_outbound: !!outboundContext,
-    outbound_context: outboundContext ?? null,
-  });
+  await supabase
+    .from("call_sessions")
+    .insert({
+      call_sid: callSid,
+      caller_phone: callerPhone,
+      caller_role: callerRole,
+      messages: [],
+      turn_count: 0,
+      status: "active",
+      is_outbound: !!outboundContext,
+      outbound_context: outboundContext ?? null,
+    })
+    .throwOnError();
 }
 
 export async function getSession(callSid: string): Promise<Session | null> {
@@ -58,7 +62,8 @@ export async function getSession(callSid: string): Promise<Session | null> {
     .from("call_sessions")
     .select("*")
     .eq("call_sid", callSid)
-    .single();
+    .maybeSingle()
+    .throwOnError();
 
   return data ?? null;
 }
@@ -67,7 +72,8 @@ export async function updateSession(callSid: string, messages: Message[], turnCo
   await supabase
     .from("call_sessions")
     .update({ messages, turn_count: turnCount, updated_at: new Date().toISOString() })
-    .eq("call_sid", callSid);
+    .eq("call_sid", callSid)
+    .throwOnError();
 }
 
 export async function completeSession(callSid: string, actionsTaken: string[]): Promise<void> {
@@ -75,20 +81,25 @@ export async function completeSession(callSid: string, actionsTaken: string[]): 
     .from("call_sessions")
     .select("caller_phone, caller_role, turn_count")
     .eq("call_sid", callSid)
-    .single();
+    .maybeSingle()
+    .throwOnError();
 
   await supabase
     .from("call_sessions")
     .update({ status: "completed", updated_at: new Date().toISOString() })
-    .eq("call_sid", callSid);
+    .eq("call_sid", callSid)
+    .throwOnError();
 
   if (session) {
-    await supabase.from("audit_logs").insert({
-      call_sid: callSid,
-      caller_phone: session.caller_phone,
-      caller_role: session.caller_role,
-      turn_count: session.turn_count,
-      actions_taken: actionsTaken,
-    });
+    await supabase
+      .from("audit_logs")
+      .insert({
+        call_sid: callSid,
+        caller_phone: session.caller_phone,
+        caller_role: session.caller_role,
+        turn_count: session.turn_count,
+        actions_taken: actionsTaken,
+      })
+      .throwOnError();
   }
 }

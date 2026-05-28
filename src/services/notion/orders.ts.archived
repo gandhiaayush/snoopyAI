@@ -1,0 +1,215 @@
+import { Client } from "@notionhq/client";
+import { config } from "../../config";
+
+const notion = new Client({ auth: config.NOTION_API_KEY });
+const DB_ID = config.NOTION_DATABASE_ID;
+
+export interface Order {
+  pageId: string;
+  orderId: string;
+  customerName: string;
+  orderPhone: string;
+  tracker: string;        // Received | Sorting | Cleaning | Pressing | Ready for Pickup | Delivered | Cancelled
+  expectedDate: string;
+  notes: string;
+  orderPrice: number | null;
+  orderType: string;      // Regular | Expedited
+  garmentType: string;
+  paymentMethod: string;  // Cash | Card | Venmo | Zelle | Unpaid
+  paymentDate: string;
+  callbackRequested: string;
+}
+
+const PRICES: Record<string, { Regular: number; Expedited: number }> = {
+  Shirt:   { Regular: 12,  Expedited: 18  },
+  Pants:   { Regular: 14,  Expedited: 21  },
+  Dress:   { Regular: 28,  Expedited: 42  },
+  Suit:    { Regular: 45,  Expedited: 68  },
+  Jacket:  { Regular: 32,  Expedited: 48  },
+  Coat:    { Regular: 38,  Expedited: 57  },
+  Skirt:   { Regular: 18,  Expedited: 27  },
+  Other:   { Regular: 20,  Expedited: 30  },
+};
+
+function pageToOrder(page: Record<string, unknown>): Order {
+  const props = (page as { properties: Record<string, unknown> }).properties;
+
+  const getTitle = (p: unknown) =>
+    ((p as { title: Array<{ plain_text: string }> }).title?.[0]?.plain_text) ?? "";
+  const getRichText = (p: unknown) =>
+    ((p as { rich_text: Array<{ plain_text: string }> }).rich_text?.[0]?.plain_text) ?? "";
+  const getPhone = (p: unknown) =>
+    (p as { phone_number: string }).phone_number ?? "";
+  const getSelect = (p: unknown) =>
+    (p as { select: { name: string } | null }).select?.name ?? "";
+  const getDate = (p: unknown) =>
+    (p as { date: { start: string } | null }).date?.start ?? "";
+  const getNumber = (p: unknown) =>
+    (p as { number: number | null }).number ?? null;
+
+  return {
+    pageId:            (page as { id: string }).id,
+    orderId:           getTitle(props["ORDER_ID"]),
+    customerName:      getRichText(props["CUSTOMER_NAME"]),
+    orderPhone:        getPhone(props["ORDER_PHONE"]),
+    tracker:           getSelect(props["TRACKER"]),
+    expectedDate:      getDate(props["EXPECTED_DATE"]),
+    notes:             getRichText(props["NOTES"]),
+    orderPrice:        getNumber(props["ORDER_PRICE"]),
+    orderType:         getSelect(props["ORDER_TYPE"]),
+    garmentType:       getSelect(props["GARMENT_TYPE"]),
+    paymentMethod:     getSelect(props["PAYMENT_METHOD"]),
+    paymentDate:       getDate(props["PAYMENT_DATE"]),
+    callbackRequested: getRichText(props["CALLBACK_REQUESTED"]),
+  };
+}
+
+// ─── Lookup ───────────────────────────────────────────────────────────────────
+
+export async function getOrderByPhone(params: { phone: string }): Promise<Order[]> {
+  const response = await notion.databases.query({
+    database_id: DB_ID,
+    filter: { property: "ORDER_PHONE", phone_number: { equals: params.phone } },
+    sorts: [{ timestamp: "created_time", direction: "descending" }],
+    page_size: 5,
+  } as Parameters<typeof notion.databases.query>[0]);
+  return response.results.map((p) => pageToOrder(p as Record<string, unknown>));
+}
+
+export async function getOrderById(params: { orderId: string }): Promise<Order | null> {
+  const response = await notion.databases.query({
+    database_id: DB_ID,
+    filter: { property: "ORDER_ID", title: { equals: params.orderId } },
+  } as Parameters<typeof notion.databases.query>[0]);
+  if (!response.results.length) return null;
+  return pageToOrder(response.results[0] as Record<string, unknown>);
+}
+
+export async function searchOrdersByName(params: { name: string }): Promise<Order[]> {
+  const response = await notion.databases.query({
+    database_id: DB_ID,
+    filter: { property: "CUSTOMER_NAME", rich_text: { contains: params.name } },
+    page_size: 5,
+  } as Parameters<typeof notion.databases.query>[0]);
+  return response.results.map((p) => pageToOrder(p as Record<string, unknown>));
+}
+
+// ─── Pricing (no Notion call) ─────────────────────────────────────────────────
+
+export function lookupPrice(params: { garmentType: string; orderType: "Regular" | "Expedited" }): { garmentType: string; orderType: string; price: number } | { error: string } {
+  const row = PRICES[params.garmentType];
+  if (!row) return { error: `Unknown garment type: ${params.garmentType}` };
+  return { garmentType: params.garmentType, orderType: params.orderType, price: row[params.orderType] };
+}
+
+export function listAllPrices(): Array<{ garmentType: string; Regular: number; Expedited: number }> {
+  return Object.entries(PRICES).map(([garmentType, prices]) => ({
+    garmentType,
+    Regular: prices.Regular,
+    Expedited: prices.Expedited,
+  }));
+}
+
+// ─── Mutations ────────────────────────────────────────────────────────────────
+
+export async function cancelOrder(params: { pageId: string }): Promise<Order> {
+  const page = await notion.pages.update({
+    page_id: params.pageId,
+    properties: {
+      TRACKER: { select: { name: "Cancelled" } },
+    } as Parameters<typeof notion.pages.update>[0]["properties"],
+  });
+  return pageToOrder(page as Record<string, unknown>);
+}
+
+export async function appendOrderNote(params: { pageId: string; note: string }): Promise<Order> {
+  const existing = await notion.pages.retrieve({ page_id: params.pageId });
+  const props = (existing as { properties: Record<string, unknown> }).properties;
+  const currentNotes =
+    ((props["NOTES"] as { rich_text: Array<{ plain_text: string }> })?.rich_text?.[0]?.plain_text) ?? "";
+  const newNotes = currentNotes ? `${currentNotes}\n${params.note}` : params.note;
+
+  const page = await notion.pages.update({
+    page_id: params.pageId,
+    properties: {
+      NOTES: { rich_text: [{ text: { content: newNotes } }] },
+    } as Parameters<typeof notion.pages.update>[0]["properties"],
+  });
+  return pageToOrder(page as Record<string, unknown>);
+}
+
+export async function setOrderType(params: { pageId: string; orderType: "Regular" | "Expedited" }): Promise<Order> {
+  const page = await notion.pages.update({
+    page_id: params.pageId,
+    properties: {
+      ORDER_TYPE: { select: { name: params.orderType } },
+    } as Parameters<typeof notion.pages.update>[0]["properties"],
+  });
+  return pageToOrder(page as Record<string, unknown>);
+}
+
+export async function updateTracker(params: { pageId: string; stage: string }): Promise<Order> {
+  const page = await notion.pages.update({
+    page_id: params.pageId,
+    properties: {
+      TRACKER: { select: { name: params.stage } },
+    } as Parameters<typeof notion.pages.update>[0]["properties"],
+  });
+  return pageToOrder(page as Record<string, unknown>);
+}
+
+export async function updatePayment(params: {
+  pageId: string;
+  paymentMethod: string;
+  paymentDate: string | null;
+}): Promise<Order> {
+  const properties: Record<string, unknown> = {
+    PAYMENT_METHOD: { select: { name: params.paymentMethod } },
+    PAYMENT_DATE: params.paymentDate ? { date: { start: params.paymentDate } } : { date: null },
+  };
+  const page = await notion.pages.update({
+    page_id: params.pageId,
+    properties: properties as Parameters<typeof notion.pages.update>[0]["properties"],
+  });
+  return pageToOrder(page as Record<string, unknown>);
+}
+
+export async function updateGarmentType(params: { pageId: string; garmentType: string }): Promise<Order> {
+  const page = await notion.pages.update({
+    page_id: params.pageId,
+    properties: {
+      GARMENT_TYPE: { select: { name: params.garmentType } },
+    } as Parameters<typeof notion.pages.update>[0]["properties"],
+  });
+  return pageToOrder(page as Record<string, unknown>);
+}
+
+export async function requestCallback(params: { pageId: string; reason: string }): Promise<Order> {
+  const page = await notion.pages.update({
+    page_id: params.pageId,
+    properties: {
+      CALLBACK_REQUESTED: { rich_text: [{ text: { content: params.reason } }] },
+    } as Parameters<typeof notion.pages.update>[0]["properties"],
+  });
+  return pageToOrder(page as Record<string, unknown>);
+}
+
+export async function updateOrderPrice(params: { pageId: string; price: number }): Promise<Order> {
+  const page = await notion.pages.update({
+    page_id: params.pageId,
+    properties: {
+      ORDER_PRICE: { number: params.price },
+    } as Parameters<typeof notion.pages.update>[0]["properties"],
+  });
+  return pageToOrder(page as Record<string, unknown>);
+}
+
+export async function updateOrderExpectedDate(params: { pageId: string; expectedDate: string }): Promise<Order> {
+  const page = await notion.pages.update({
+    page_id: params.pageId,
+    properties: {
+      EXPECTED_DATE: { date: { start: params.expectedDate } },
+    } as Parameters<typeof notion.pages.update>[0]["properties"],
+  });
+  return pageToOrder(page as Record<string, unknown>);
+}

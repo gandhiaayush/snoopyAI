@@ -288,8 +288,20 @@ async function cancelOrder({ pageId }: { pageId: string }) {
 // ─── WRITE: Create callback ────────────────────────────────────────────────────
 
 async function requestCallback({
-  customerName, phone, orderId, reason,
-}: { pageId: string; customerName: string; phone: string; orderId: string; reason: string }) {
+  pageId, customerName, phone, orderId, reason,
+}: { pageId?: string; customerName?: string; phone?: string; orderId?: string; reason: string }) {
+  if (pageId && (!customerName || !phone || !orderId)) {
+    const page = await notion.pages.retrieve({ page_id: pageId }) as any;
+    const order = shapeOrder(page);
+    customerName = customerName ?? order.customerName;
+    phone = phone ?? order.phone ?? undefined;
+    orderId = orderId ?? order.orderId;
+  }
+
+  if (!customerName || !phone || !orderId) {
+    throw new Error("requestCallback requires either pageId or explicit customerName, phone, and orderId");
+  }
+
   const today = new Date().toISOString().split("T")[0];
   await notion.pages.create({
     parent: { database_id: ds("CALLBACKS_DATABASE_ID") } as any,

@@ -98,17 +98,17 @@ const T_SET_ORDER_TYPE: FunctionDeclaration = {
 
 const T_REQUEST_CALLBACK: FunctionDeclaration = {
   name: "requestCallback",
-  description: "Log a callback request so staff knows to follow up. Use when only staff can answer. Always call this — don't just tell the customer someone will call.",
+  description: "Log a callback request so staff can follow up. Use this whenever you cannot give a firm answer, especially for expedited requests, same-day timing, pickup-time changes, schedule exceptions, or anything that needs staff confirmation. If you already loaded the order, pass pageId and reason and the system will fill in the customer details for you.",
   parameters: {
     type: Type.OBJECT,
     properties: {
-      pageId: { type: Type.STRING, description: "Notion page ID from getOrderByPhone or getOrderById" },
-      customerName: { type: Type.STRING, description: "Customer's name" },
-      phone: { type: Type.STRING, description: "Phone number to call back" },
-      orderId: { type: Type.STRING, description: "ORDER_ID for reference e.g. ORD-0010" },
-      reason: { type: Type.STRING, description: "Why the customer wants a callback" },
+      pageId: { type: Type.STRING, description: "Notion page ID from getOrderByPhone or getOrderById. Preferred when an order is already loaded." },
+      customerName: { type: Type.STRING, description: "Customer's name, only needed if pageId is not available" },
+      phone: { type: Type.STRING, description: "Phone number to call back, only needed if pageId is not available" },
+      orderId: { type: Type.STRING, description: "ORDER_ID for reference e.g. ORD-0010, only needed if pageId is not available" },
+      reason: { type: Type.STRING, description: "Why the customer wants a callback and what needs staff confirmation" },
     },
-    required: ["pageId", "customerName", "phone", "orderId", "reason"],
+    required: ["reason"],
   },
 };
 

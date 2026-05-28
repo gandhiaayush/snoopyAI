@@ -2,7 +2,7 @@ import WebSocket from "ws";
 import twilio from "twilio";
 import { config } from "../config";
 import { getSession, completeSession } from "../services/supabase/sessions";
-import { openGeminiSession, GeminiHandle } from "../services/gemini/liveSession";
+import { openRealtimeSession, RealtimeHandle } from "../services/openai/realtimeSession";
 
 interface TwilioFrame {
   event: string;
@@ -27,15 +27,15 @@ async function hangUpCall(callSid: string): Promise<void> {
 export function handleMediaStream(ws: WebSocket): void {
   let callSid: string | null = null;
   let streamSid: string | null = null;
-  let gemini: GeminiHandle | null = null;
+  let realtime: RealtimeHandle | null = null;
   let completed = false;
 
   async function finalize() {
     if (completed || !callSid) return;
     completed = true;
     pendingFinalizations.delete(callSid);
-    gemini?.close();
-    await completeSession(callSid, gemini?.actionsTaken ?? []).catch((err) =>
+    realtime?.close();
+    await completeSession(callSid, realtime?.actionsTaken ?? []).catch((err) =>
       console.error(`[${callSid}] completeSession error:`, err)
     );
   }
@@ -59,7 +59,10 @@ export function handleMediaStream(ws: WebSocket): void {
         pendingFinalizations.delete(callSid);
       }
 
-      const session = await getSession(callSid).catch(() => null);
+      const session = await getSession(callSid).catch((err) => {
+        console.error(`[${callSid}] failed to load session:`, err);
+        return null;
+      });
       if (!session) {
         console.error(`[${callSid}] session not found — closing`);
         ws.close();
@@ -70,7 +73,7 @@ export function handleMediaStream(ws: WebSocket): void {
       const sessionAgeMs = Date.now() - new Date(session.created_at as string).getTime();
       const isResume = sessionAgeMs > 8000;
 
-      gemini = await openGeminiSession(
+      realtime = await openRealtimeSession(
         session.caller_role,
         session.caller_phone,
         (base64Mulaw) => {
@@ -81,11 +84,11 @@ export function handleMediaStream(ws: WebSocket): void {
           }
         },
         (err) => {
-          console.error(`[${callSid}] Gemini error:`, err.message);
+          console.error(`[${callSid}] OpenAI Realtime error:`, err.message);
           ws.close();
         },
         session.outbound_context ?? undefined,
-        // onClose: Gemini closed unexpectedly — hang up via Twilio REST API
+        // onClose: model session closed unexpectedly - hang up via Twilio REST API
         () => {
           if (!completed && callSid) {
             setTimeout(async () => {
@@ -105,14 +108,14 @@ export function handleMediaStream(ws: WebSocket): void {
         },
         isResume
       ).catch((err) => {
-        console.error(`[${callSid}] Failed to open Gemini session:`, err);
+        console.error(`[${callSid}] Failed to open OpenAI Realtime session:`, err);
         ws.close();
         return null;
       });
     }
 
-    if (frame.event === "media" && frame.media && gemini) {
-      gemini.sendAudio(frame.media.payload);
+    if (frame.event === "media" && frame.media && realtime) {
+      realtime.sendAudio(frame.media.payload);
     }
 
     if (frame.event === "stop") {

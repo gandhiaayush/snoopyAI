@@ -374,32 +374,49 @@ worker.tool("updateGarmentType", {
 worker.tool("requestCallback", {
 	title: "Request Callback",
 	description:
-		"Log a callback request into the dedicated Callbacks database so staff can see and action it. Use when: (1) customer wants to confirm expedited capacity, (2) item needs a custom quote (e.g. heavily beaded wedding dress), or (3) question only staff can answer. Always call this instead of just telling the customer someone will call — it creates the actual record.",
+		"Log a callback request into the dedicated Callbacks database so staff can see and action it. Use when: (1) customer wants to confirm expedited capacity, (2) customer asks for a pickup-time or schedule exception, (3) item needs a custom quote, or (4) anything else requires staff confirmation. Always call this instead of just telling the customer someone will call — it creates the actual record.",
 	schema: j.object({
 		pageId: j
 			.string()
-			.describe("Notion page ID from getOrderByPhone or getOrderById"),
-		customerName: j.string().describe("Customer's name for the callback record"),
-		phone: j.string().describe("Phone number to call back"),
-		orderId: j.string().describe("ORDER_ID value for reference"),
+			.describe("Notion page ID from getOrderByPhone or getOrderById. Pass an empty string if unavailable."),
+		customerName: j.string().describe("Customer's name for the callback record. Pass an empty string if pageId is enough."),
+		phone: j.string().describe("Phone number to call back. Pass an empty string if pageId is enough."),
+		orderId: j.string().describe("ORDER_ID value for reference. Pass an empty string if pageId is enough."),
 		reason: j
 			.string()
 			.describe(
-				"Why the customer wants a callback, e.g. 'Confirming expedited capacity for Suit (2-piece) pickup Friday'",
+				"Why the customer wants a callback and what needs staff confirmation, e.g. 'Confirming expedited capacity for Suit (2-piece) pickup Friday'",
 			),
 	}),
-	execute: async ({ customerName, phone, orderId, reason }, { notion }) => {
+	execute: async ({ pageId, customerName, phone, orderId, reason }, { notion }) => {
+		let normalizedPageId = pageId || undefined;
+		let normalizedCustomerName = customerName || undefined;
+		let normalizedPhone = phone || undefined;
+		let normalizedOrderId = orderId || undefined;
+
+		if (normalizedPageId && (!normalizedCustomerName || !normalizedPhone || !normalizedOrderId)) {
+			const page = await notion.pages.retrieve({ page_id: normalizedPageId });
+			const order = shapeOrder(page);
+			normalizedCustomerName = normalizedCustomerName ?? order.customerName;
+			normalizedPhone = normalizedPhone ?? order.phone ?? undefined;
+			normalizedOrderId = normalizedOrderId ?? order.orderId;
+		}
+
+		if (!normalizedCustomerName || !normalizedPhone || !normalizedOrderId) {
+			throw new Error("requestCallback requires either pageId or explicit customerName, phone, and orderId");
+		}
+
 		const today = new Date().toISOString().split("T")[0];
 		await notion.pages.create({
 			parent: { data_source_id: callbacksDs() } as any,
 			properties: {
 				CUSTOMER_NAME: {
-					title: [{ type: "text", text: { content: customerName } }],
+					title: [{ type: "text", text: { content: normalizedCustomerName } }],
 				},
 				ORDER_ID: {
-					rich_text: [{ type: "text", text: { content: orderId } }],
+					rich_text: [{ type: "text", text: { content: normalizedOrderId } }],
 				},
-				PHONE: { phone_number: phone },
+				PHONE: { phone_number: normalizedPhone },
 				REASON: {
 					rich_text: [{ type: "text", text: { content: reason } }],
 				},
