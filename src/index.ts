@@ -686,8 +686,8 @@ worker.sync("callbackPoller", {
 				continue;
 			}
 
-			// Look up the order for full context
-			let orderCtx: Record<string, string> = {};
+			// Look up the order for garment type + expected date context
+			let orderCtx: { garmentType?: string; expectedDate?: string } = {};
 			let orderPageId: string | null = null;
 			let orderNotes = "";
 			try {
@@ -701,27 +701,14 @@ worker.sync("callbackPoller", {
 					const op = (orderRes.results[0] as any).properties;
 					orderNotes = getText(op["NOTES"]).slice(0, 400);
 					orderCtx = {
-						garmentType:   getText(op["GARMENT_TYPE"]),
-						trackerStage:  getText(op["TRACKER_STAGE"]),
-						price:         String(op["ORDER_PRICE"]?.number ?? ""),
-						paymentMethod: getText(op["PAYMENT_METHOD"]),
-						orderType:     getText(op["ORDER_TYPE"]),
-						notes:         orderNotes,
+						garmentType:  getText(op["GARMENT_TYPE"]) || undefined,
+						expectedDate: (op["EXPECTED_DATE"]?.date?.start ?? undefined) as string | undefined,
 					};
 				}
 			} catch (_) { /* non-fatal */ }
 
 			let result = "Called";
 			try {
-				const twimlParams = new URLSearchParams({
-					customerName,
-					orderId,
-					reason,
-					garmentType:   orderCtx.garmentType   ?? "",
-					trackerStage:  orderCtx.trackerStage  ?? "",
-					notes:         (orderCtx.notes ?? "").slice(0, 200),
-				});
-				const callUrl = `${base}/api/dashboard/twiml/callback?${twimlParams.toString()}`;
 				const creds = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
 				const r = await fetch(
 					`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json`,
@@ -731,14 +718,24 @@ worker.sync("callbackPoller", {
 							Authorization: `Basic ${creds}`,
 							"Content-Type": "application/x-www-form-urlencoded",
 						},
-						body: new URLSearchParams({ To: phone, From: fromNumber, Url: callUrl }),
+						body: new URLSearchParams({
+							To: phone, From: fromNumber, Url: `${base}/voice`,
+							StatusCallbackParameter1: `reason=${reason}`,
+							StatusCallbackParameter2: `orderId=${orderId ?? ""}`,
+							StatusCallbackParameter3: `customerName=${customerName}`,
+							StatusCallbackParameter4: `garmentType=${orderCtx.garmentType ?? ""}`,
+							StatusCallbackParameter5: `dueDate=${orderCtx.expectedDate ?? ""}`,
+						}),
 					},
 				);
 				if (!r.ok) throw new Error(await r.text());
-				// Success — mark callback as Called Back
+				// Success — mark callback as Called Back and record CALL_STATUS
 				await notion.pages.update({
 					page_id: page.id,
-					properties: { STATUS: { rich_text: [{ type: "text", text: { content: "Called Back" } }] } },
+					properties: {
+						STATUS:      { rich_text: [{ type: "text", text: { content: "Called Back" } }] },
+						CALL_STATUS: { rich_text: [{ type: "text", text: { content: "Called" } }] },
+					},
 				});
 				// Write callback reason to ORDER notes so the order record reflects the call
 				if (orderPageId) {

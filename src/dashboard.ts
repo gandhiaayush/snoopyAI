@@ -524,40 +524,37 @@ r.post("/ai", (_req, res) => {
 	});
 });
 
-// GET /twiml/callback  — returns TwiML for outbound callback calls
-r.get("/twiml/callback", (req, res) => {
-  const customerName = String(req.query.customerName ?? "valued customer");
-  const orderId      = String(req.query.orderId ?? "");
-  const garmentType  = String(req.query.garmentType ?? "");
-  const reason       = String(req.query.reason ?? "");
-  const notes        = String(req.query.notes ?? "");
-
-  let reasonScript = "";
-  if (reason === "order_ready") {
-    reasonScript = "Your order is ready for pickup.";
-  } else if (reason === "payment_issue") {
-    reasonScript = "We have a question about the payment on your order.";
-  } else if (reason === "pickup_reminder") {
-    reasonScript = "This is a reminder about your scheduled pickup tomorrow.";
-  } else if (reason) {
-    reasonScript = notes || reason;
-  } else {
-    reasonScript = "We wanted to follow up on your recent order.";
+// POST /parse-order — NLP order parsing via GPT-4o-mini
+r.post("/parse-order", async (req, res) => {
+  const { text } = req.body as { text?: string };
+  if (!text) { res.status(400).json({ error: "text required" }); return; }
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) { res.status(500).json({ error: "OPENAI_API_KEY not set" }); return; }
+  const today = new Date().toISOString().split("T")[0];
+  try {
+    const r2 = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        temperature: 0,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: `You are an order parser for a dry cleaning shop. Today is ${today}. Extract fields from natural language and return a JSON object with these optional keys: customerName (string), phone (E.164 string, e.g. "+14155551234"), garmentType (string, one of: Shirt, Pants, Dress, Suit, Jacket, Coat, Skirt, Wedding Dress, Other), orderType ("Regular" or "Expedited"), price (number, dollars), expectedDate (YYYY-MM-DD string), notes (string). Only include keys you are confident about. Never guess customerName.`,
+          },
+          { role: "user", content: text },
+        ],
+      }),
+    });
+    if (!r2.ok) throw new Error(await r2.text());
+    const body = await r2.json() as any;
+    const parsed = JSON.parse(body.choices[0].message.content);
+    res.json(parsed);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
   }
-
-  const garmentPart = garmentType ? ` for your ${garmentType}` : "";
-  const orderPart   = orderId ? ` order ${orderId}` : " order";
-
-  const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say voice="Polly.Joanna">
-    Hi ${customerName}, this is Charlie's Cleaners calling about your${orderPart}${garmentPart}.
-    ${reasonScript}
-    Please call us back or stop by before seven. Thank you.
-  </Say>
-</Response>`;
-
-  res.type("text/xml").send(twiml);
 });
 
 // GET /pickups
